@@ -2,3 +2,7 @@ numpy
 pandas
 scikit-learn
 streamlit
+plotly
+yfinance
+tradingview-ta
+streamlit-autorefresh
