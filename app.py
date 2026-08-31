@@ -12,16 +12,16 @@ from datetime import datetime
 
 # --- PAGE CONFIG ---
 st.set_page_config(
-    page_title="ApexQuant Pro | Institutional Multi-Asset Terminal",
+    page_title="ApexQuant Pro | Institutional Terminal",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Auto-refresh app every 15 seconds for live data sync
+# Auto-refresh app every 15 seconds
 st_autorefresh(interval=15000, key="quant_feed_sync")
 
-# --- HIGH-END QUANT STYLING (CSS) ---
+# --- HIGH-END QUANT DARK STYLING ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;700&display=swap');
@@ -31,7 +31,7 @@ st.markdown("""
 
     .main { background-color: #0b0e14; color: #d1d4dc; }
     
-    /* Top Live Market Ribbon */
+    /* Top Market Bar */
     .ticker-bar {
         display: flex;
         gap: 28px;
@@ -47,24 +47,24 @@ st.markdown("""
     .ticker-up { color: #089981; font-weight: 600; }
     .ticker-down { color: #f23645; font-weight: 600; }
 
-    /* Glassmorphic Metric Cards */
-    div[data-testid="stMetric"] {
-        background: linear-gradient(135deg, rgba(22, 27, 34, 0.8), rgba(13, 17, 23, 0.9));
-        border: 1px solid rgba(255, 255, 255, 0.08);
+    /* Vertical Glassmorphic Cards */
+    .vertical-card {
+        background: #121721;
+        border: 1px solid #1f293d;
         border-radius: 8px;
-        padding: 12px 16px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        padding: 16px;
+        margin-bottom: 16px;
     }
-    div[data-testid="stMetric"] label {
-        color: #8b949e !important;
-        font-size: 11px !important;
+    .card-title {
+        font-size: 13px;
         text-transform: uppercase;
+        color: #8b949e;
         letter-spacing: 0.5px;
-    }
-    div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
-        color: #f0f6fc !important;
-        font-size: 19px !important;
-        font-weight: 700;
+        font-weight: 600;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -89,7 +89,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- MULTI-MARKET UNIVERSE CONFIG ---
+# --- ASSET UNIVERSE CONFIGURATION ---
 MARKET_UNIVERSE = {
     "🟡 Precious Metals & Commodities": {
         "Gold (XAU/USD)": {"symbol": "XAUUSD", "exchange": "OANDA", "screener": "forex", "yf": "GC=F", "pip_size": 0.1, "lot_units": 100},
@@ -107,7 +107,7 @@ MARKET_UNIVERSE = {
         "HDFC Bank": {"symbol": "HDFCBANK", "exchange": "NSE", "screener": "india", "yf": "HDFCBANK.NS", "pip_size": 0.05, "lot_units": 550},
         "TCS": {"symbol": "TCS", "exchange": "NSE", "screener": "india", "yf": "TCS.NS", "pip_size": 0.05, "lot_units": 175}
     },
-    "🇺🇸 US Tech & Global Equities": {
+    "🇺🇸 US Tech & Equities": {
         "Nvidia (NVDA)": {"symbol": "NVDA", "exchange": "NASDAQ", "screener": "america", "yf": "NVDA", "pip_size": 0.01, "lot_units": 100},
         "Apple (AAPL)": {"symbol": "AAPL", "exchange": "NASDAQ", "screener": "america", "yf": "AAPL", "pip_size": 0.01, "lot_units": 100},
         "Tesla (TSLA)": {"symbol": "TSLA", "exchange": "NASDAQ", "screener": "america", "yf": "TSLA", "pip_size": 0.01, "lot_units": 100}
@@ -120,47 +120,46 @@ MARKET_UNIVERSE = {
 }
 
 # --- SIDEBAR WORKSPACE ---
-st.sidebar.title("⚡ Control Center")
+st.sidebar.title("⚡ Control Station")
 
-category = st.sidebar.selectbox("Sector / Asset Class", list(MARKET_UNIVERSE.keys()))
-asset_name = st.sidebar.selectbox("Active Tradable Instrument", list(MARKET_UNIVERSE[category].keys()))
+category = st.sidebar.selectbox("Asset Class", list(MARKET_UNIVERSE.keys()))
+asset_name = st.sidebar.selectbox("Active Instrument", list(MARKET_UNIVERSE[category].keys()))
 asset_cfg = MARKET_UNIVERSE[category][asset_name]
 
 tv_interval_map = {
-    "1 Minute (Scalping)": (Interval.INTERVAL_1_MINUTE, "1m", "1d"),
-    "5 Minutes (Intraday)": (Interval.INTERVAL_5_MINUTES, "5m", "5d"),
-    "15 Minutes (Session Setup)": (Interval.INTERVAL_15_MINUTES, "15m", "1mo"),
-    "1 Hour (Structural Swing)": (Interval.INTERVAL_1_HOUR, "1h", "3mo"),
-    "1 Day (Macro Trend)": (Interval.INTERVAL_1_DAY, "1d", "1y")
+    "1m (Scalping)": (Interval.INTERVAL_1_MINUTE, "1m", "1d"),
+    "5m (Intraday)": (Interval.INTERVAL_5_MINUTES, "5m", "5d"),
+    "15m (Session)": (Interval.INTERVAL_15_MINUTES, "15m", "1mo"),
+    "1h (Swing)": (Interval.INTERVAL_1_HOUR, "1h", "3mo"),
+    "1d (Macro)": (Interval.INTERVAL_1_DAY, "1d", "1y")
 }
 
-interval_label = st.sidebar.selectbox("Resolution Interval", list(tv_interval_map.keys()), index=2)
+interval_label = st.sidebar.selectbox("Interval", list(tv_interval_map.keys()), index=2)
 tv_interval, yf_interval, yf_period = tv_interval_map[interval_label]
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("🧠 Anomaly Parameters")
+st.sidebar.subheader("🧠 Anomaly Sensitivity")
 contamination = st.sidebar.slider("Model Contamination", 0.01, 0.10, 0.03, 0.01)
 
-# --- SIDEBAR BROKER CONNECTION BRIDGE ---
+# --- SIDEBAR BROKER API BRIDGE ---
 st.sidebar.markdown("---")
-st.sidebar.subheader("🔗 Broker API Bridge")
-broker_type = st.sidebar.selectbox("Select Target Broker", ["MetaTrader 5 (MT5)", "Zerodha (Kite Connect)", "Binance Futures", "Interactive Brokers (IBKR)"])
+st.sidebar.subheader("🔗 Broker Gateway")
+broker_type = st.sidebar.selectbox("Active Gateway", ["MetaTrader 5 (MT5)", "Zerodha Kite Connect", "Binance Futures", "Interactive Brokers"])
 
 if not st.session_state.broker_connected:
-    with st.sidebar.expander("⚙️ Connect Broker Credentials"):
-        account_id = st.text_input("Account ID / API Key", value="MT5-LIVE-98231")
-        server_ip = st.text_input("Server / Endpoint", value="broker.live.gateway:443")
-        if st.button("Initialize Bridge Gateway", use_container_width=True):
+    with st.sidebar.expander("⚙️ Connect Account"):
+        account_id = st.text_input("Account ID", value="MT5-LIVE-98231")
+        if st.button("Initialize Gateway Bridge", use_container_width=True):
             st.session_state.broker_connected = True
             st.rerun()
 else:
-    st.sidebar.success(f"🟢 **{broker_type}** Bridge Active")
-    st.sidebar.caption("Latency: `12ms` | Protocol: `REST / WebSockets`")
-    if st.sidebar.button("Disconnect Broker", use_container_width=True):
+    st.sidebar.success(f"🟢 **{broker_type}** Connected")
+    st.sidebar.caption("Latency: `11ms` | Protocol: `REST/WS`")
+    if st.sidebar.button("Disconnect Gateway", use_container_width=True):
         st.session_state.broker_connected = False
         st.rerun()
 
-# --- BACKEND DATA ENGINE ---
+# --- DATA FETCHERS ---
 @st.cache_data(ttl=15)
 def get_tradingview_indicators(symbol, exchange, screener, interval):
     try:
@@ -215,7 +214,7 @@ def load_ohlcv_data(ticker, period, interval, fallback_price=2450.0):
 
 df = load_ohlcv_data(asset_cfg["yf"], yf_period, yf_interval)
 
-# --- ISOLATION FOREST ANOMALY ENGINE ---
+# --- ML ANOMALY ENGINE ---
 if df is not None and len(df) >= 20:
     df['returns'] = df['Close'].pct_change()
     df['rolling_vol'] = df['returns'].rolling(14).std()
@@ -233,173 +232,172 @@ else:
     clean_df = pd.DataFrame()
     anomalies = pd.DataFrame()
 
-# --- TOP SUMMARY HUD ---
-st.title(f"⚡ {asset_name} — Institutional Terminal")
+current_market_price = float(clean_df['Close'].iloc[-1]) if not clean_df.empty else 2450.0
 
-h1, h2, h3, h4, h5 = st.columns(5)
-current_market_price = clean_df['Close'].iloc[-1] if not clean_df.empty else 2450.0
+# --- MAIN TWO-COLUMN VERTICAL DASHBOARD LAYOUT ---
+col_main_chart, col_vertical_panel = st.columns([2.6, 1.2])
 
-if tv_data:
-    summary = tv_data.summary
-    indicators = tv_data.indicators
-    verdict = summary.get("RECOMMENDATION", "NEUTRAL")
-    signal_color = "🟢" if "BUY" in verdict else ("🔴" if "SELL" in verdict else "⚪")
+with col_main_chart:
+    st.title(f"⚡ {asset_name}")
     
-    h1.metric("TV Consensus", f"{signal_color} {verdict}")
-    h2.metric("Oscillators", f"Buy: {summary.get('BUY', 0)} | Sell: {summary.get('SELL', 0)}")
-    h3.metric("RSI (14)", f"{indicators.get('RSI', 0.0):.2f}")
-    h4.metric("AI Anomaly Breaks", f"{len(anomalies)} Candles")
-    h5.metric("Broker Status", "🟢 Connected" if st.session_state.broker_connected else "⚪ Standby")
-else:
-    h1.metric("Asset Class", category.split()[1])
-    h2.metric("Market Price", f"${current_market_price:,.2f}")
-    h3.metric("AI Anomalies", f"{len(anomalies)} Flagged")
-    h4.metric("System State", "🟢 Active")
-    h5.metric("Broker Status", "🟢 Connected" if st.session_state.broker_connected else "⚪ Standby")
+    # Chart Sub-Tabs
+    tab_tv, tab_quant = st.tabs(["📺 Live TradingView Engine", "🔬 ML Anomaly Detection Engine"])
+    
+    with tab_tv:
+        tv_widget_html = f"""
+        <div class="tradingview-widget-container" style="height:620px;width:100%">
+          <div id="tradingview_chart" style="height:calc(100% - 32px);width:100%"></div>
+          <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+          <script type="text/javascript">
+          new TradingView.widget({{
+            "autosize": true,
+            "symbol": "{asset_cfg['exchange']}:{asset_cfg['symbol']}",
+            "interval": "{'D' if 'Day' in interval_label else ('60' if '1h' in interval_label else ('15' if '15' in interval_label else '5'))}",
+            "timezone": "Asia/Kolkata",
+            "theme": "dark",
+            "style": "1",
+            "locale": "en",
+            "toolbar_bg": "#111622",
+            "enable_publishing": false,
+            "allow_symbol_change": true,
+            "container_id": "tradingview_chart"
+          }});
+          </script>
+        </div>
+        """
+        components.html(tv_widget_html, height=630)
 
-st.markdown("---")
-
-# --- MAIN TERMINAL WORKSPACE TABS ---
-tab_tv, tab_quant, tab_calc, tab_broker = st.tabs([
-    "📺 Live TradingView Viewport", 
-    "🔬 Machine Learning Anomaly Engine", 
-    "🧮 Smart Pip & Position Size Calculator",
-    "⚡ Broker Execution & Order Desk"
-])
-
-with tab_tv:
-    st.caption("Direct High-Speed TradingView HTML5 Engine")
-    tv_widget_html = f"""
-    <div class="tradingview-widget-container" style="height:620px;width:100%">
-      <div id="tradingview_chart" style="height:calc(100% - 32px);width:100%"></div>
-      <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-      <script type="text/javascript">
-      new TradingView.widget({{
-        "autosize": true,
-        "symbol": "{asset_cfg['exchange']}:{asset_cfg['symbol']}",
-        "interval": "{'D' if 'Day' in interval_label else ('60' if 'Hour' in interval_label else ('15' if '15' in interval_label else '5'))}",
-        "timezone": "Asia/Kolkata",
-        "theme": "dark",
-        "style": "1",
-        "locale": "en",
-        "toolbar_bg": "#111622",
-        "enable_publishing": false,
-        "allow_symbol_change": true,
-        "container_id": "tradingview_chart"
-      }});
-      </script>
-    </div>
-    """
-    components.html(tv_widget_html, height=630)
-
-with tab_quant:
-    if not clean_df.empty:
-        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.75, 0.25])
-        
-        # Candles
-        fig.add_trace(go.Candlestick(
-            x=clean_df.index,
-            open=clean_df['Open'], high=clean_df['High'],
-            low=clean_df['Low'], close=clean_df['Close'],
-            name="Price",
-            increasing_line_color="#089981", decreasing_line_color="#f23645"
-        ), row=1, col=1)
-
-        # ML Anomaly Flags
-        if not anomalies.empty:
-            fig.add_trace(go.Scatter(
-                x=anomalies.index,
-                y=anomalies['High'] * 1.002,
-                mode='markers',
-                marker=dict(symbol='diamond', size=9, color='#ff0055', line=dict(width=1, color='#ffffff')),
-                name="AI Anomaly Breakout"
+    with tab_quant:
+        if not clean_df.empty:
+            fig = make_subplots(
+                rows=2, cols=1, 
+                shared_xaxes=True, 
+                vertical_spacing=0.03, 
+                row_heights=[0.75, 0.25]
+            )
+            
+            # Candlesticks
+            fig.add_trace(go.Candlestick(
+                x=clean_df.index,
+                open=clean_df['Open'], high=clean_df['High'],
+                low=clean_df['Low'], close=clean_df['Close'],
+                name="Price",
+                increasing_line_color="#089981", decreasing_line_color="#f23645"
             ), row=1, col=1)
 
-        # Volume
-        vol_colors = ['#089981' if c >= o else '#f23645' for c, o in zip(clean_df['Close'], clean_df['Open'])]
-        fig.add_trace(go.Bar(x=clean_df.index, y=clean_df['Volume'], marker_color=vol_colors, name="Volume"), row=2, col=1)
+            # Anomaly Diamonds with Tooltips
+            if not anomalies.empty:
+                fig.add_trace(go.Scatter(
+                    x=anomalies.index,
+                    y=anomalies['High'] * 1.004,
+                    mode='markers',
+                    marker=dict(symbol='diamond', size=10, color='#ff0055', line=dict(width=1.5, color='#ffffff')),
+                    name="AI Anomaly Breakout",
+                    customdata=np.stack((
+                        anomalies['Close'], anomalies['z_score'], anomalies['vol_surge']
+                    ), axis=-1),
+                    hovertemplate=(
+                        "<b>🚨 AI ANOMALY DETECTED</b><br>" +
+                        "<b>Price:</b> $%{customdata[0]:,.2f}<br>" +
+                        "<b>Z-Score:</b> %{customdata[1]:.2f}σ<br>" +
+                        "<b>Volume Surge:</b> %{customdata[2]:.2f}x<br>" +
+                        "<extra></extra>"
+                    )
+                ), row=1, col=1)
 
-        fig.update_layout(
-            template="plotly_dark",
-            height=580,
-            margin=dict(l=10, r=10, t=10, b=10),
-            xaxis_rangeslider_visible=False,
-            paper_bgcolor="#0b0e14",
-            plot_bgcolor="#0b0e14"
-        )
-        st.plotly_chart(fig, use_container_width=True)
+            # Volume Subplot
+            vol_colors = ['#089981' if c >= o else '#f23645' for c, o in zip(clean_df['Close'], clean_df['Open'])]
+            fig.add_trace(go.Bar(x=clean_df.index, y=clean_df['Volume'], marker_color=vol_colors, name="Volume"), row=2, col=1)
+
+            fig.update_layout(
+                template="plotly_dark",
+                height=580,
+                margin=dict(l=10, r=10, t=10, b=10),
+                dragmode="pan",
+                xaxis_rangeslider_visible=False,
+                paper_bgcolor="#0b0e14",
+                plot_bgcolor="#0b0e14"
+            )
+            st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True})
+        else:
+            st.info("Market feed syncing.")
+
+    # Bottom Positions & History Table
+    st.markdown("### 📋 Position History & Broker Log")
+    if len(st.session_state.positions) > 0:
+        st.dataframe(pd.DataFrame(st.session_state.positions), use_container_width=True)
+        if st.button("Close / Liquidate All Open Positions", use_container_width=True):
+            st.session_state.positions = []
+            st.rerun()
     else:
-        st.info("Market feed syncing.")
+        st.caption("No active open orders. Use the vertical execution desk on the right to route orders.")
 
-with tab_calc:
-    st.subheader(f"🧮 Institutional Pip & Position Size Calculator ({asset_name})")
+# --- RIGHT COLUMN: FULL VERTICAL STACK (PIPS, SIZING, EXECUTION) ---
+with col_vertical_panel:
     
-    col_c1, col_c2, col_c3 = st.columns(3)
-    
-    with col_c1:
-        calc_acc_balance = st.number_input("Account Balance ($)", min_value=100.0, value=st.session_state.account_balance, step=1000.0)
-        risk_percentage = st.slider("Risk Tolerance per Trade (%)", 0.25, 5.0, 1.0, 0.25)
-        risk_usd = (calc_acc_balance * risk_percentage) / 100.0
-        st.metric("Total Capital at Risk", f"${risk_usd:,.2f}", f"{risk_percentage}% Risk")
-
-    with col_c2:
-        entry_price = st.number_input("Planned Entry Price ($)", value=float(current_market_price), format="%.4f")
-        stop_loss_price = st.number_input("Stop Loss (SL) Price ($)", value=float(current_market_price * 0.992), format="%.4f")
-        take_profit_price = st.number_input("Take Profit (TP) Price ($)", value=float(current_market_price * 1.016), format="%.4f")
-
-    with col_c3:
-        # Mathematical Pip & Position Formula
-        pip_unit = asset_cfg["pip_size"]
-        sl_distance_pips = abs(entry_price - stop_loss_price) / pip_unit
-        tp_distance_pips = abs(take_profit_price - entry_price) / pip_unit
-        rr_ratio = (tp_distance_pips / sl_distance_pips) if sl_distance_pips > 0 else 1.0
-        
-        # Recommended Lot Calculation
-        lot_size_recommended = risk_usd / (sl_distance_pips * pip_unit * asset_cfg["lot_units"]) if sl_distance_pips > 0 else 0.1
-        
-        st.metric("Stop Loss Distance", f"{sl_distance_pips:,.1f} Pips / Points")
-        st.metric("Risk / Reward Ratio", f"1 : {rr_ratio:.2f}")
-        st.metric("Recommended Lot Size", f"{lot_size_recommended:.2f} Lots")
+    # 1. Vertical Indicator / Consensus HUD
+    st.markdown("#### ⚡ Market Consensus")
+    if tv_data:
+        verdict = tv_data.summary.get("RECOMMENDATION", "NEUTRAL")
+        signal_color = "🟢" if "BUY" in verdict else ("🔴" if "SELL" in verdict else "⚪")
+        st.metric("TradingView Verdict", f"{signal_color} {verdict}")
+        st.metric("RSI (14-Period)", f"{tv_data.indicators.get('RSI', 0):.2f}")
+        st.metric("ADX Trend Strength", f"{tv_data.indicators.get('ADX', 0):.2f}")
+    else:
+        st.metric("Live Price", f"${current_market_price:,.2f}")
+        st.metric("AI Anomaly Status", f"{len(anomalies)} Flagged")
 
     st.markdown("---")
-    st.info(f"💡 **Execution Rule:** For a **${risk_usd:,.2f}** risk with a **{sl_distance_pips:.1f} pip** stop on {asset_name}, open exactly **{lot_size_recommended:.2f} standard lots**.")
 
-with tab_broker:
-    col_exec, col_pos = st.columns([1.2, 1.8])
+    # 2. Vertical Pip & Position Sizing Calculator
+    st.markdown("#### 🧮 Vertical Pip & Sizing Desk")
     
-    with col_exec:
-        st.markdown("#### ⚡ Order Routing Desk")
-        target_lots = st.number_input("Execution Volume (Lots)", min_value=0.01, max_value=50.0, value=float(round(lot_size_recommended, 2)), step=0.1)
-        
-        col_b1, col_b2 = st.columns(2)
-        if col_b1.button("🟢 ROUTE BUY ORDER", use_container_width=True):
-            st.session_state.positions.append({
-                "Time": datetime.now().strftime("%H:%M:%S"),
-                "Asset": asset_name,
-                "Type": "BUY",
-                "Lots": target_lots,
-                "Entry": f"${current_market_price:,.2f}",
-                "Bridge Status": "Sent to MT5/Gateway" if st.session_state.broker_connected else "Simulated"
-            })
-            st.success(f"Dispatched BUY order for {target_lots} lots")
+    acc_balance = st.number_input("Account Balance ($)", min_value=100.0, value=st.session_state.account_balance, step=1000.0)
+    risk_pct = st.slider("Risk Tolerance (%)", 0.25, 5.0, 1.0, 0.25)
+    risk_dollars = (acc_balance * risk_pct) / 100.0
+    
+    entry_val = st.number_input("Planned Entry ($)", value=current_market_price, format="%.4f")
+    sl_val = st.number_input("Stop Loss (SL) ($)", value=float(current_market_price * 0.992), format="%.4f")
+    tp_val = st.number_input("Take Profit (TP) ($)", value=float(current_market_price * 1.016), format="%.4f")
+    
+    pip_unit = asset_cfg["pip_size"]
+    sl_pips = abs(entry_val - sl_val) / pip_unit
+    tp_pips = abs(tp_val - entry_val) / pip_unit
+    rr_calc = (tp_pips / sl_pips) if sl_pips > 0 else 1.0
+    
+    # Formula for recommended lot size
+    rec_lots = risk_dollars / (sl_pips * pip_unit * asset_cfg["lot_units"]) if sl_pips > 0 else 0.1
 
-        if col_b2.button("🔴 ROUTE SELL ORDER", use_container_width=True):
-            st.session_state.positions.append({
-                "Time": datetime.now().strftime("%H:%M:%S"),
-                "Asset": asset_name,
-                "Type": "SELL",
-                "Lots": target_lots,
-                "Entry": f"${current_market_price:,.2f}",
-                "Bridge Status": "Sent to MT5/Gateway" if st.session_state.broker_connected else "Simulated"
-            })
-            st.error(f"Dispatched SELL order for {target_lots} lots")
+    # Vertical Results Stack
+    st.metric("Total Capital at Risk", f"${risk_dollars:,.2f}")
+    st.metric("Stop Loss Distance", f"{sl_pips:,.1f} Pips")
+    st.metric("Risk-to-Reward (R:R)", f"1 : {rr_calc:.2f}")
+    st.metric("Optimal Lot Size", f"{rec_lots:.2f} Lots")
 
-    with col_pos:
-        st.markdown("#### 📋 Active Broker Positions & History")
-        if len(st.session_state.positions) > 0:
-            st.dataframe(pd.DataFrame(st.session_state.positions), use_container_width=True)
-            if st.button("Close / Liquidate All Positions", use_container_width=True):
-                st.session_state.positions = []
-                st.rerun()
-        else:
-            st.caption("No open orders routed. Connect a broker or execute via the routing desk.")
+    st.markdown("---")
+
+    # 3. Vertical Direct Order Execution Panel
+    st.markdown("#### 🛒 Direct Order Routing")
+    exec_lots = st.number_input("Volume to Dispatch", min_value=0.01, max_value=50.0, value=float(round(rec_lots, 2)), step=0.1)
+
+    if st.button("🟢 ROUTE BUY / LONG", use_container_width=True):
+        st.session_state.positions.append({
+            "Timestamp": datetime.now().strftime("%H:%M:%S"),
+            "Asset": asset_name,
+            "Type": "BUY",
+            "Lots": exec_lots,
+            "Entry Price": f"${current_market_price:,.2f}",
+            "Gateway": broker_type if st.session_state.broker_connected else "Simulated"
+        })
+        st.success(f"Dispatched BUY {exec_lots} lots")
+
+    if st.button("🔴 ROUTE SELL / SHORT", use_container_width=True):
+        st.session_state.positions.append({
+            "Timestamp": datetime.now().strftime("%H:%M:%S"),
+            "Asset": asset_name,
+            "Type": "SELL",
+            "Lots": exec_lots,
+            "Entry Price": f"${current_market_price:,.2f}",
+            "Gateway": broker_type if st.session_state.broker_connected else "Simulated"
+        })
+        st.error(f"Dispatched SELL {exec_lots} lots")
