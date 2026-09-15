@@ -1,29 +1,32 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit.components.v1 as components
 from tradingview_ta import TA_Handler, Interval
+from sklearn.ensemble import IsolationForest
 import yfinance as yf
 from streamlit_autorefresh import st_autorefresh
 from datetime import datetime
 
 # --- PAGE CONFIG ---
 st.set_page_config(
-    page_title="TRADER MASTER | AI Intelligence",
+    page_title="Smart Session Anomaly Detector | Institutional Suite",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Auto-refresh app every 20 seconds
-st_autorefresh(interval=20000, key="saas_dashboard_sync")
+# Auto-refresh session feed every 20 seconds
+st_autorefresh(interval=20000, key="ssad_feed_sync")
 
-# --- CUSTOM SAAS DARK UI STYLING ---
+# --- MODERN STYLING (CSS) ---
 st.markdown("""
     
 """, unsafe_allow_html=True)
 
-# --- SESSION STATE INITIALIZATION ---
+# --- SESSION STATE MANAGEMENT ---
 if "nav_page" not in st.session_state:
     st.session_state.nav_page = "📊 Dashboard"
 if "account_balance" not in st.session_state:
@@ -34,7 +37,7 @@ if "broker_connected" not in st.session_state:
     st.session_state.broker_connected = False
 
 # Navigation options
-nav_options = [
+NAV_OPTIONS = [
     "📊 Dashboard", 
     "📈 AI Trade & Charts", 
     "🧮 Pip & Risk Calculator", 
@@ -44,21 +47,20 @@ nav_options = [
 ]
 
 # --- SIDEBAR NAVIGATION ---
-st.sidebar.markdown("### ⚡ **TRADER MASTER**")
-st.sidebar.caption("AI-Powered Institutional Suite")
+st.sidebar.markdown("### ⚡ **Smart Session Anomaly Detector**")
+st.sidebar.caption("Quantitative Market Pattern Engine")
 
-current_idx = nav_options.index(st.session_state.nav_page) if st.session_state.nav_page in nav_options else 0
-selected_page = st.sidebar.radio(
+curr_idx = NAV_OPTIONS.index(st.session_state.nav_page) if st.session_state.nav_page in NAV_OPTIONS else 0
+selected_nav = st.sidebar.radio(
     "Navigation Menu",
-    nav_options,
-    index=current_idx,
+    NAV_OPTIONS,
+    index=curr_idx,
     label_visibility="collapsed",
-    key="sidebar_radio"
+    key="ssad_nav_radio"
 )
 
-if selected_page != st.session_state.nav_page:
-    st.session_state.nav_page = selected_page
+if selected_nav != st.session_state.nav_page:
+    st.session_state.nav_page = selected_nav
     st.rerun()
 
-# User Profile Pill in Sidebar
 st.sidebar.markdown("""
