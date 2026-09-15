@@ -47,7 +47,6 @@ nav_options = [
 st.sidebar.markdown("### ⚡ **TRADER MASTER**")
 st.sidebar.caption("AI-Powered Institutional Suite")
 
-# Use a selectbox/radio that is strictly tied to session state
 current_idx = nav_options.index(st.session_state.nav_page) if st.session_state.nav_page in nav_options else 0
 selected_page = st.sidebar.radio(
     "Navigation Menu",
@@ -57,7 +56,6 @@ selected_page = st.sidebar.radio(
     key="sidebar_radio"
 )
 
-# Keep navigation synchronized
 if selected_page != st.session_state.nav_page:
     st.session_state.nav_page = selected_page
     st.rerun()
