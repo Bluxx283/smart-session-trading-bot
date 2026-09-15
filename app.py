@@ -349,128 +349,147 @@ elif st.session_state.active_tab == "📈 AI Trade & Charts":
         tv_symbol = f"{inst_cfg['exchange']}:{inst_cfg['symbol']}"
 
         tv_widget_html = f"""
+        <div class="tradingview-widget-container">
+          <div id="tv_chart"></div>
+          <script src="https://s3.tradingview.com/tv.js"></script>
+          <script>
+          new TradingView.widget({{
+            "autosize": true,
+            "symbol": "{tv_symbol}",
+            "interval": "{tv_interval_val}",
+            "timezone": "Asia/Kolkata",
+            "theme": "dark",
+            "style": "1",
+            "locale": "en",
+            "toolbar_bg": "#0b0e14",
+            "enable_publishing": false,
+            "hide_top_toolbar": false,
+            "container_id": "tv_chart"
+          }});
+          </script>
+        </div>
         """
-    components.html(tv_widget_html, height=590)
+        components.html(tv_widget_html, height=590)
 
-with tab_quant:
-    active_df = load_ohlcv(inst_cfg["yf"])
-    if active_df is not None and len(active_df) >= 20:
-        active_df["returns"] = active_df["Close"].pct_change()
-        active_df["rolling_vol"] = active_df["returns"].rolling(14).std()
-        rolling_m = active_df["Close"].rolling(20).mean()
-        rolling_s = active_df["Close"].rolling(20).std()
-        active_df["z_score"] = (active_df["Close"] - rolling_m) / (
-            rolling_s + 1e-8
-        )
-        active_df["vol_surge"] = active_df["Volume"] / (
-            active_df["Volume"].rolling(20).mean() + 1e-8
-        )
-        clean_df = active_df.dropna().copy()
-
-        iso = IsolationForest(
-            n_estimators=100, contamination=0.03, random_state=42
-        )
-        raw_anomaly = (
-            iso.fit_predict(
-                clean_df[["rolling_vol", "z_score", "vol_surge"]].values
+    with tab_quant:
+        active_df = load_ohlcv(inst_cfg["yf"])
+        if active_df is not None and len(active_df) >= 20:
+            active_df["returns"] = active_df["Close"].pct_change()
+            active_df["rolling_vol"] = active_df["returns"].rolling(14).std()
+            rolling_m = active_df["Close"].rolling(20).mean()
+            rolling_s = active_df["Close"].rolling(20).std()
+            active_df["z_score"] = (active_df["Close"] - rolling_m) / (
+                rolling_s + 1e-8
             )
-            == -1
-        )
+            active_df["vol_surge"] = active_df["Volume"] / (
+                active_df["Volume"].rolling(20).mean() + 1e-8
+            )
+            clean_df = active_df.dropna().copy()
 
-        is_pivot = (
-            clean_df["High"] == clean_df["High"].rolling(5, center=True).max()
-        ) | (clean_df["Low"] == clean_df["Low"].rolling(5, center=True).min())
-        clean_df["anomaly"] = (
-            raw_anomaly
-            & is_pivot
-            & ((clean_df["z_score"].abs() > 1.8) | (clean_df["vol_surge"] > 2.0))
-        )
-        anomalies = clean_df[clean_df["anomaly"]]
+            iso = IsolationForest(
+                n_estimators=100, contamination=0.03, random_state=42
+            )
+            raw_anomaly = (
+                iso.fit_predict(
+                    clean_df[["rolling_vol", "z_score", "vol_surge"]].values
+                )
+                == -1
+            )
 
-        fig = make_subplots(
-            rows=2,
-            cols=1,
-            shared_xaxes=True,
-            vertical_spacing=0.03,
-            row_heights=[0.75, 0.25],
-        )
-        fig.add_trace(
-            go.Candlestick(
-                x=clean_df.index,
-                open=clean_df["Open"],
-                high=clean_df["High"],
-                low=clean_df["Low"],
-                close=clean_df["Close"],
-                name="Price",
-                increasing_line_color="#089981",
-                decreasing_line_color="#f23645",
-            ),
-            row=1,
-            col=1,
-        )
+            is_pivot = (
+                clean_df["High"] == clean_df["High"].rolling(5, center=True).max()
+            ) | (clean_df["Low"] == clean_df["Low"].rolling(5, center=True).min())
+            clean_df["anomaly"] = (
+                raw_anomaly
+                & is_pivot
+                & ((clean_df["z_score"].abs() > 1.8) | (clean_df["vol_surge"] > 2.0))
+            )
+            anomalies = clean_df[clean_df["anomaly"]]
 
-        if not anomalies.empty:
+            fig = make_subplots(
+                rows=2,
+                cols=1,
+                shared_xaxes=True,
+                vertical_spacing=0.03,
+                row_heights=[0.75, 0.25],
+            )
             fig.add_trace(
-                go.Scatter(
-                    x=anomalies.index,
-                    y=anomalies["High"] * 1.003,
-                    mode="markers",
-                    marker=dict(
-                        symbol="diamond",
-                        size=10,
-                        color="#ff0055",
-                        line=dict(width=1.5, color="#ffffff"),
-                    ),
-                    name="AI Anomaly Breakout",
+                go.Candlestick(
+                    x=clean_df.index,
+                    open=clean_df["Open"],
+                    high=clean_df["High"],
+                    low=clean_df["Low"],
+                    close=clean_df["Close"],
+                    name="Price",
+                    increasing_line_color="#089981",
+                    decreasing_line_color="#f23645",
                 ),
                 row=1,
                 col=1,
             )
 
-        vol_colors = [
-            "#089981" if c >= o else "#f23645"
-            for c, o in zip(clean_df["Close"], clean_df["Open"])
-        ]
-        fig.add_trace(
-            go.Bar(
-                x=clean_df.index,
-                y=clean_df["Volume"],
-                marker_color=vol_colors,
-                name="Volume",
-            ),
-            row=2,
-            col=1,
-        )
+            if not anomalies.empty:
+                fig.add_trace(
+                    go.Scatter(
+                        x=anomalies.index,
+                        y=anomalies["High"] * 1.003,
+                        mode="markers",
+                        marker=dict(
+                            symbol="diamond",
+                            size=10,
+                            color="#ff0055",
+                            line=dict(width=1.5, color="#ffffff"),
+                        ),
+                        name="AI Anomaly Breakout",
+                    ),
+                    row=1,
+                    col=1,
+                )
 
-        fig.update_layout(
-            template="plotly_dark",
-            height=540,
-            margin=dict(l=10, r=10, t=10, b=10),
-            dragmode="pan",
-            xaxis_rangeslider_visible=False,
-            paper_bgcolor="#0b0e14",
-            plot_bgcolor="#0b0e14",
-        )
-        st.plotly_chart(
-            fig, use_container_width=True, config={"scrollZoom": True}
-        )
-
-        st.markdown("#### 🔬 Detected Session Anomalies Log")
-        if not anomalies.empty:
-            anomaly_sheet = anomalies[
-                ["Close", "z_score", "vol_surge", "rolling_vol"]
-            ].copy()
-            anomaly_sheet.columns = [
-                "Price ($)",
-                "Z-Score (σ)",
-                "Volume Surge Ratio",
-                "Rolling Volatility",
+            vol_colors = [
+                "#089981" if c >= o else "#f23645"
+                for c, o in zip(clean_df["Close"], clean_df["Open"])
             ]
-            st.dataframe(anomaly_sheet.tail(10), use_container_width=True)
+            fig.add_trace(
+                go.Bar(
+                    x=clean_df.index,
+                    y=clean_df["Volume"],
+                    marker_color=vol_colors,
+                    name="Volume",
+                ),
+                row=2,
+                col=1,
+            )
+
+            fig.update_layout(
+                template="plotly_dark",
+                height=540,
+                margin=dict(l=10, r=10, t=10, b=10),
+                dragmode="pan",
+                xaxis_rangeslider_visible=False,
+                paper_bgcolor="#0b0e14",
+                plot_bgcolor="#0b0e14",
+            )
+            st.plotly_chart(
+                fig, use_container_width=True, config={"scrollZoom": True}
+            )
+
+            st.markdown("#### 🔬 Detected Session Anomalies Log")
+            if not anomalies.empty:
+                anomaly_sheet = anomalies[
+                    ["Close", "z_score", "vol_surge", "rolling_vol"]
+                ].copy()
+                anomaly_sheet.columns = [
+                    "Price ($)",
+                    "Z-Score (σ)",
+                    "Volume Surge Ratio",
+                    "Rolling Volatility",
+                ]
+                st.dataframe(anomaly_sheet.tail(10), use_container_width=True)
+            else:
+                st.caption("No statistical anomalies flagged in this window.")
         else:
-            st.caption("No statistical anomalies flagged in this window.")
-    else:
-        st.info("Market feed syncing.")
+            st.info("Market feed syncing.")
 
 # ==========================================
 # 🧮 VIEW 3: PIP & RISK CALCULATOR
@@ -514,128 +533,138 @@ elif st.session_state.active_tab == "🧮 Pip & Risk Calculator":
     st.metric("Risk to Reward", f"1 : {c_rr:.2f}")
     st.success(f"🎯 **Recommended Position Size: `{c_lot:.2f} Lots`**")
 
+# ==========================================
+# ⚡ VIEW 4: BROKER GATEWAY
+# ==========================================
 elif st.session_state.active_tab == "⚡ Broker Gateway":
-st.title("⚡ Smart Session Anomaly Detector | Execution Bridge")
+    st.title("⚡ Smart Session Anomaly Detector | Execution Bridge")
 
-col_g1, col_g2 = st.columns([1, 1.5])
-with col_g1:
-    st.markdown("#### 🔗 Broker Gateway Setup")
-    target_broker = st.selectbox(
-        "Broker Gateway",
-        [
-            "MetaTrader 5 (MT5)",
-            "Zerodha (Kite)",
-            "Binance Futures",
-            "Interactive Brokers",
-        ],
-    )
-    if not st.session_state.broker_connected:
-        if st.button("Connect Gateway", use_container_width=True):
-            st.session_state.broker_connected = True
-            st.rerun()
-    else:
-        st.success(f"🟢 **{target_broker}** Bridge Active")
-        if st.button("Disconnect Gateway", use_container_width=True):
-            st.session_state.broker_connected = False
-            st.rerun()
-
-    st.divider()
-    st.markdown("#### 🛒 Order Dispatch")
-    trade_lots = st.number_input(
-        "Volume (Lots)", min_value=0.01, max_value=20.0, value=1.0, step=0.1
-    )
-    btn_b, btn_s = st.columns(2)
-    if btn_b.button("🟢 BUY / LONG", use_container_width=True):
-        st.session_state.positions.insert(
-            0,
-            {
-                "Timestamp": datetime.now().strftime("%H:%M:%S"),
-                "Asset": "Gold (XAU/USD)",
-                "Type": "BUY",
-                "Lots": trade_lots,
-                "Price": f"${global_price:,.2f}",
-                "Bridge": (
-                    "MT5/REST"
-                    if st.session_state.broker_connected
-                    else "Demo Simulated"
-                ),
-            },
+    col_g1, col_g2 = st.columns([1, 1.5])
+    with col_g1:
+        st.markdown("#### 🔗 Broker Gateway Setup")
+        target_broker = st.selectbox(
+            "Broker Gateway",
+            [
+                "MetaTrader 5 (MT5)",
+                "Zerodha (Kite)",
+                "Binance Futures",
+                "Interactive Brokers",
+            ],
         )
-        st.success("BUY Order Routed Successfully!")
-        st.rerun()
-    if btn_s.button("🔴 SELL / SHORT", use_container_width=True):
-        st.session_state.positions.insert(
-            0,
-            {
-                "Timestamp": datetime.now().strftime("%H:%M:%S"),
-                "Asset": "Gold (XAU/USD)",
-                "Type": "SELL",
-                "Lots": trade_lots,
-                "Price": f"${global_price:,.2f}",
-                "Bridge": (
-                    "MT5/REST"
-                    if st.session_state.broker_connected
-                    else "Demo Simulated"
-                ),
-            },
-        )
-        st.error("SELL Order Routed Successfully!")
-        st.rerun()
+        if not st.session_state.broker_connected:
+            if st.button("Connect Gateway", use_container_width=True):
+                st.session_state.broker_connected = True
+                st.rerun()
+        else:
+            st.success(f"🟢 **{target_broker}** Bridge Active")
+            if st.button("Disconnect Gateway", use_container_width=True):
+                st.session_state.broker_connected = False
+                st.rerun()
 
-with col_g2:
-    st.markdown("#### 📋 Open Position History")
-    if len(st.session_state.positions) > 0:
-        st.dataframe(
-            pd.DataFrame(st.session_state.positions), use_container_width=True
+        st.divider()
+        st.markdown("#### 🛒 Order Dispatch")
+        trade_lots = st.number_input(
+            "Volume (Lots)", min_value=0.01, max_value=20.0, value=1.0, step=0.1
         )
-        if st.button("Close All Positions", use_container_width=True):
-            st.session_state.positions = []
+        btn_b, btn_s = st.columns(2)
+        if btn_b.button("🟢 BUY / LONG", use_container_width=True):
+            st.session_state.positions.insert(
+                0,
+                {
+                    "Timestamp": datetime.now().strftime("%H:%M:%S"),
+                    "Asset": "Gold (XAU/USD)",
+                    "Type": "BUY",
+                    "Lots": trade_lots,
+                    "Price": f"${global_price:,.2f}",
+                    "Bridge": (
+                        "MT5/REST"
+                        if st.session_state.broker_connected
+                        else "Demo Simulated"
+                    ),
+                },
+            )
+            st.success("BUY Order Routed Successfully!")
             st.rerun()
-    else:
-        st.caption("No open market positions.")
+        if btn_s.button("🔴 SELL / SHORT", use_container_width=True):
+            st.session_state.positions.insert(
+                0,
+                {
+                    "Timestamp": datetime.now().strftime("%H:%M:%S"),
+                    "Asset": "Gold (XAU/USD)",
+                    "Type": "SELL",
+                    "Lots": trade_lots,
+                    "Price": f"${global_price:,.2f}",
+                    "Bridge": (
+                        "MT5/REST"
+                        if st.session_state.broker_connected
+                        else "Demo Simulated"
+                    ),
+                },
+            )
+            st.error("SELL Order Routed Successfully!")
+            st.rerun()
 
+    with col_g2:
+        st.markdown("#### 📋 Open Position History")
+        if len(st.session_state.positions) > 0:
+            st.dataframe(
+                pd.DataFrame(st.session_state.positions), use_container_width=True
+            )
+            if st.button("Close All Positions", use_container_width=True):
+                st.session_state.positions = []
+                st.rerun()
+        else:
+            st.caption("No open market positions.")
+
+# ==========================================
+# 📅 VIEW 5: ECONOMIC CALENDAR
+# ==========================================
 elif st.session_state.active_tab == "📅 Economic Calendar":
-st.title("📅 High-Impact Economic Calendar")
-cal_data = pd.DataFrame([
-{
-"Time (IST)": "18:00",
-"Currency": "USD",
-"Event": "Core CPI (YoY)",
-"Impact": "🔴 HIGH",
-"Forecast": "3.2%",
-"Previous": "3.3%",
-},
-{
-"Time (IST)": "19:30",
-"Currency": "USD",
-"Event": "Non-Farm Payrolls (NFP)",
-"Impact": "🔴 HIGH",
-"Forecast": "180K",
-"Previous": "175K",
-},
-{
-"Time (IST)": "20:30",
-"Currency": "EUR",
-"Event": "ECB Interest Rate Decision",
-"Impact": "🔴 HIGH",
-"Forecast": "3.75%",
-"Previous": "4.00%",
-},
-{
-"Time (IST)": "21:45",
-"Currency": "USD",
-"Event": "FOMC Press Conference",
-"Impact": "🔴 HIGH",
-"Forecast": "-",
-"Previous": "-",
-},
-])
-st.dataframe(cal_data, use_container_width=True)
+    st.title("📅 High-Impact Economic Calendar")
+    cal_data = pd.DataFrame(
+        [
+            {
+                "Time (IST)": "18:00",
+                "Currency": "USD",
+                "Event": "Core CPI (YoY)",
+                "Impact": "🔴 HIGH",
+                "Forecast": "3.2%",
+                "Previous": "3.3%",
+            },
+            {
+                "Time (IST)": "19:30",
+                "Currency": "USD",
+                "Event": "Non-Farm Payrolls (NFP)",
+                "Impact": "🔴 HIGH",
+                "Forecast": "180K",
+                "Previous": "175K",
+            },
+            {
+                "Time (IST)": "20:30",
+                "Currency": "EUR",
+                "Event": "ECB Interest Rate Decision",
+                "Impact": "🔴 HIGH",
+                "Forecast": "3.75%",
+                "Previous": "4.00%",
+            },
+            {
+                "Time (IST)": "21:45",
+                "Currency": "USD",
+                "Event": "FOMC Press Conference",
+                "Impact": "🔴 HIGH",
+                "Forecast": "-",
+                "Previous": "-",
+            },
+        ]
+    )
+    st.dataframe(cal_data, use_container_width=True)
 
-
+# ==========================================
+# ⚙️ VIEW 6: SETTINGS
+# ==========================================
 elif st.session_state.active_tab == "⚙️ Settings":
-st.title("⚙️ Smart Session Anomaly Detector | Settings")
-st.write("Platform: Smart Session Anomaly Detector Suite")
-st.write("Architecture: Python Quant Pipeline + Isolation Forest ML")
-st.write("Data Stream Latency: 20 Seconds Auto-Sync")
-st.selectbox("Base Currency", ["USD ($)", "INR (₹)", "EUR (€)"])
+    st.title("⚙️ Smart Session Anomaly Detector | Settings")
+    st.write("Platform: Smart Session Anomaly Detector Suite")
+    st.write("Architecture: Python Quant Pipeline + Isolation Forest ML")
+    st.write("Data Stream Latency: 20 Seconds Auto-Sync")
+    st.selectbox("Base Currency", ["USD ($)", "INR (₹)", "EUR (€)"])
