@@ -471,42 +471,45 @@ with tab_quant:
             st.caption("No statistical anomalies flagged in this window.")
     else:
         st.info("Market feed syncing.")
+
+# ==========================================
+# 🧮 VIEW 3: PIP & RISK CALCULATOR
+# ==========================================
 elif st.session_state.active_tab == "🧮 Pip & Risk Calculator":
-st.title("🧮 Smart Session Anomaly Detector | Pip & Sizing Desk")
+    st.title("🧮 Smart Session Anomaly Detector | Pip & Sizing Desk")
 
-calc_asset = st.selectbox(
-    "Tradable Instrument",
-    [
-        "Gold (XAU/USD)",
-        "Bitcoin (BTC/USDT)",
-        "NIFTY 50 Index",
-        "EUR/USD",
-        "Nvidia (NVDA)",
-    ],
-)
-
-col_c1, col_c2, col_c3 = st.columns(3)
-with col_c1:
-    c_bal = st.number_input(
-        "Portfolio Balance ($)",
-        value=float(st.session_state.account_balance),
-        step=1000.0,
+    calc_asset = st.selectbox(
+        "Tradable Instrument",
+        [
+            "Gold (XAU/USD)",
+            "Bitcoin (BTC/USDT)",
+            "NIFTY 50 Index",
+            "EUR/USD",
+            "Nvidia (NVDA)",
+        ],
     )
-    c_risk_pct = st.slider("Risk Tolerance (%)", 0.25, 5.0, 1.0, 0.25)
-    c_risk_usd = (c_bal * c_risk_pct) / 100.0
-    st.metric("Total Capital at Risk", f"${c_risk_usd:,.2f}")
 
-with col_c2:
-    c_entry = st.number_input("Entry Price ($)", value=float(global_price))
-    c_sl = st.number_input("Stop Loss ($)", value=float(global_price * 0.992))
-    c_tp = st.number_input("Take Profit ($)", value=float(global_price * 1.016))
+    col_c1, col_c2, col_c3 = st.columns(3)
+    with col_c1:
+        c_bal = st.number_input(
+            "Portfolio Balance ($)",
+            value=float(st.session_state.account_balance),
+            step=1000.0,
+        )
+        c_risk_pct = st.slider("Risk Tolerance (%)", 0.25, 5.0, 1.0, 0.25)
+        c_risk_usd = (c_bal * c_risk_pct) / 100.0
+        st.metric("Total Capital at Risk", f"${c_risk_usd:,.2f}")
 
-with col_c3:
-    sl_points = abs(c_entry - c_sl)
-    tp_points = abs(c_tp - c_entry)
-    c_rr = tp_points / sl_points if sl_points > 0 else 1.0
-    c_lot = c_risk_usd / (sl_points * 100) if sl_points > 0 else 0.1
+    with col_c2:
+        c_entry = st.number_input("Entry Price ($)", value=float(global_price))
+        c_sl = st.number_input("Stop Loss ($)", value=float(global_price * 0.992))
+        c_tp = st.number_input("Take Profit ($)", value=float(global_price * 1.016))
 
+    with col_c3:
+        sl_points = abs(c_entry - c_sl)
+        tp_points = abs(c_tp - c_entry)
+        c_rr = tp_points / sl_points if sl_points > 0 else 1.0
+        c_lot = c_risk_usd / (sl_points * 100) if sl_points > 0 else 0.1
     st.metric("Stop Loss Distance", f"{sl_points:,.2f} Points")
     st.metric("Risk to Reward", f"1 : {c_rr:.2f}")
     st.success(f"🎯 **Recommended Position Size: `{c_lot:.2f} Lots`**")
