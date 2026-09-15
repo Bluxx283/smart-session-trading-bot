@@ -349,8 +349,9 @@ elif st.session_state.active_tab == "📈 AI Trade & Charts":
         tv_symbol = f"{inst_cfg['exchange']}:{inst_cfg['symbol']}"
 
         tv_widget_html = f"""
-        <div class="tradingview-widget-container">
-          <div id="tv_chart"></div>
+        <style>html, body {{ height: 100%; margin: 0; padding: 0; }}</style>
+        <div class="tradingview-widget-container" style="height:100%;width:100%;">
+          <div id="tv_chart" style="height:100%;width:100%;"></div>
           <script src="https://s3.tradingview.com/tv.js"></script>
           <script>
           new TradingView.widget({{
@@ -369,7 +370,7 @@ elif st.session_state.active_tab == "📈 AI Trade & Charts":
           </script>
         </div>
         """
-        components.html(tv_widget_html, height=590)
+        components.html(tv_widget_html, height=780, scrolling=False)
 
     with tab_quant:
         active_df = load_ohlcv(inst_cfg["yf"])
