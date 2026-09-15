@@ -22,8 +22,8 @@ st.set_page_config(
 st_autorefresh(interval=20000, key="ssad_feed_sync")
 
 # --- SESSION STATE INITIALIZATION ---
-if "nav_page" not in st.session_state:
-    st.session_state.nav_page = "📊 Dashboard"
+if "active_tab" not in st.session_state:
+    st.session_state.active_tab = "📊 Dashboard"
 if "account_balance" not in st.session_state:
     st.session_state.account_balance = 100000.0
 if "positions" not in st.session_state:
@@ -41,24 +41,21 @@ NAV_OPTIONS = [
     "⚙️ Settings"
 ]
 
+# Callback to switch pages from Quick Action buttons
+def switch_page(target_page):
+    st.session_state.active_tab = target_page
+
 # --- SIDEBAR NAVIGATION ---
 st.sidebar.title("⚡ Smart Session Anomaly Detector")
 st.sidebar.caption("Quantitative Market Pattern Engine")
 
-curr_idx = NAV_OPTIONS.index(st.session_state.nav_page) if st.session_state.nav_page in NAV_OPTIONS else 0
 selected_nav = st.sidebar.radio(
     "Navigation Menu",
     NAV_OPTIONS,
-    index=curr_idx,
-    label_visibility="collapsed",
-    key="ssad_nav_radio"
+    key="active_tab",
+    label_visibility="collapsed"
 )
 
-if selected_nav != st.session_state.nav_page:
-    st.session_state.nav_page = selected_nav
-    st.rerun()
-
-# Clean Sidebar Status Display using native Streamlit
 st.sidebar.divider()
 with st.sidebar.container(border=True):
     st.caption("ACTIVE TERMINAL")
@@ -134,7 +131,7 @@ default_cfg = MARKET_UNIVERSE["🟡 Metals & Commodities"]["Gold (XAU/USD)"]
 global_df = load_ohlcv(default_cfg["yf"])
 global_price = float(global_df['Close'].iloc[-1]) if not global_df.empty else 2468.40
 
-# Top Ticker Bar using Native Streamlit Columns
+# Top Ticker Bar
 with st.container(border=True):
     t1, t2, t3, t4, t5 = st.columns(5)
     t1.metric("🟡 XAU/USD", "$2,468.40", "+0.84%")
@@ -146,11 +143,10 @@ with st.container(border=True):
 # ==========================================
 # 📊 VIEW 1: DASHBOARD
 # ==========================================
-if st.session_state.nav_page == "📊 Dashboard":
+if st.session_state.active_tab == "📊 Dashboard":
     st.title("Smart Session Anomaly Detector")
     st.caption("Multi-Asset Quantitative Intelligence & Risk Framework")
 
-    # Native Metric Cards
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Open Positions", f"{len(st.session_state.positions)} Active")
     m2.metric("Anomaly Model Accuracy", "95.4%")
@@ -164,33 +160,49 @@ if st.session_state.nav_page == "📊 Dashboard":
         with st.container(border=True):
             st.markdown("#### 📈 AI Live Charts")
             st.caption("Live TradingView viewport with anomaly detection markers.")
-            if st.button("Open Charts →", key="btn_qa_charts", use_container_width=True):
-                st.session_state.nav_page = "📈 AI Trade & Charts"
-                st.rerun()
+            st.button(
+                "Open Charts →", 
+                key="btn_qa_charts", 
+                use_container_width=True, 
+                on_click=switch_page, 
+                args=("📈 AI Trade & Charts",)
+            )
 
     with q2:
         with st.container(border=True):
             st.markdown("#### 🧮 Pip & Risk Engine")
             st.caption("Calculate exact position sizing and risk-to-reward ratios.")
-            if st.button("Open Calculator →", key="btn_qa_calc", use_container_width=True):
-                st.session_state.nav_page = "🧮 Pip & Risk Calculator"
-                st.rerun()
+            st.button(
+                "Open Calculator →", 
+                key="btn_qa_calc", 
+                use_container_width=True, 
+                on_click=switch_page, 
+                args=("🧮 Pip & Risk Calculator",)
+            )
 
     with q3:
         with st.container(border=True):
             st.markdown("#### ⚡ Broker Gateway")
             st.caption("Route mock or live WebSockets trades directly to MT5 or Binance.")
-            if st.button("Open Gateway →", key="btn_qa_broker", use_container_width=True):
-                st.session_state.nav_page = "⚡ Broker Gateway"
-                st.rerun()
+            st.button(
+                "Open Gateway →", 
+                key="btn_qa_broker", 
+                use_container_width=True, 
+                on_click=switch_page, 
+                args=("⚡ Broker Gateway",)
+            )
 
     with q4:
         with st.container(border=True):
             st.markdown("#### 📅 Economic Calendar")
             st.caption("Monitor high-impact CPI, NFP, and rate decision events.")
-            if st.button("View Calendar →", key="btn_qa_cal", use_container_width=True):
-                st.session_state.nav_page = "📅 Economic Calendar"
-                st.rerun()
+            st.button(
+                "View Calendar →", 
+                key="btn_qa_cal", 
+                use_container_width=True, 
+                on_click=switch_page, 
+                args=("📅 Economic Calendar",)
+            )
 
     st.divider()
     st.markdown("### Recent Trade Activity")
@@ -202,7 +214,7 @@ if st.session_state.nav_page == "📊 Dashboard":
 # ==========================================
 # 📈 VIEW 2: AI TRADE & CHARTS
 # ==========================================
-elif st.session_state.nav_page == "📈 AI Trade & Charts":
+elif st.session_state.active_tab == "📈 AI Trade & Charts":
     st.title("📈 Smart Session Anomaly Detector | Charts")
     
     col_s1, col_s2, col_s3 = st.columns([1.5, 1.5, 1])
@@ -217,10 +229,9 @@ elif st.session_state.nav_page == "📈 AI Trade & Charts":
     tab_tv, tab_quant = st.tabs(["📺 Live TradingView Viewport", "🔬 ML Anomaly Engine"])
 
     with tab_tv:
-        tv_interval_val = 'D' if chart_res=='1D' else ('60' if chart_res=='1h' else ('15' if chart_res=='15m' else '5'))
+        tv_interval_val = 'D' if chart_res == '1D' else ('60' if chart_res == '1h' else ('15' if chart_res == '15m' else '5'))
         tv_widget_html = f"""
-        """
-    components.html(tv_widget_html, height=590)
+        components.html(tv_widget_html, height=590)
 
 with tab_quant:
     active_df = load_ohlcv(inst_cfg["yf"])
@@ -274,6 +285,10 @@ with tab_quant:
             st.caption("No statistical anomalies flagged in this window.")
     else:
         st.info("Market feed syncing.")
+
+elif st.session_state.active_tab == "🧮 Pip & Risk Calculator":
+st.title("🧮 Smart Session Anomaly Detector | Pip & Sizing Desk")
+
 calc_asset = st.selectbox("Tradable Instrument", [
     "Gold (XAU/USD)", "Bitcoin (BTC/USDT)", "NIFTY 50 Index", "EUR/USD", "Nvidia (NVDA)"
 ])
@@ -299,6 +314,10 @@ with col_c3:
     st.metric("Stop Loss Distance", f"{sl_points:,.2f} Points")
     st.metric("Risk to Reward", f"1 : {c_rr:.2f}")
     st.success(f"🎯 **Recommended Position Size: `{c_lot:.2f} Lots`**")
+
+elif st.session_state.active_tab == "⚡ Broker Gateway":
+st.title("⚡ Smart Session Anomaly Detector | Execution Bridge")
+
 col_g1, col_g2 = st.columns([1, 1.5])
 with col_g1:
     st.markdown("#### 🔗 Broker Gateway Setup")
@@ -349,3 +368,20 @@ with col_g2:
             st.rerun()
     else:
         st.caption("No open market positions.")
+
+elif st.session_state.active_tab == "📅 Economic Calendar":
+st.title("📅 High-Impact Economic Calendar")
+cal_data = pd.DataFrame([
+{"Time (IST)": "18:00", "Currency": "USD", "Event": "Core CPI (YoY)", "Impact": "🔴 HIGH", "Forecast": "3.2%", "Previous": "3.3%"},
+{"Time (IST)": "19:30", "Currency": "USD", "Event": "Non-Farm Payrolls (NFP)", "Impact": "🔴 HIGH", "Forecast": "180K", "Previous": "175K"},
+{"Time (IST)": "20:30", "Currency": "EUR", "Event": "ECB Interest Rate Decision", "Impact": "🔴 HIGH", "Forecast": "3.75%", "Previous": "4.00%"},
+{"Time (IST)": "21:45", "Currency": "USD", "Event": "FOMC Press Conference", "Impact": "🔴 HIGH", "Forecast": "-", "Previous": "-"}
+])
+st.dataframe(cal_data, use_container_width=True)
+
+elif st.session_state.active_tab == "⚙️ Settings":
+st.title("⚙️ Smart Session Anomaly Detector | Settings")
+st.write("Platform: Smart Session Anomaly Detector Suite")
+st.write("Architecture: Python Quant Pipeline + Isolation Forest ML")
+st.write("Data Stream Latency: 20 Seconds Auto-Sync")
+st.selectbox("Base Currency", ["USD ($)", "INR (₹)", "EUR (€)"])
