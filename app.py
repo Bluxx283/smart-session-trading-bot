@@ -31,6 +31,60 @@ if "positions" not in st.session_state:
 if "broker_connected" not in st.session_state:
     st.session_state.broker_connected = False
 
+# --- FLOATING AI BOT: SESSION STATE ---
+if "bot_open" not in st.session_state:
+    st.session_state.bot_open = False
+if "chat_messages" not in st.session_state:
+    st.session_state.chat_messages = [
+        {
+            "role": "assistant",
+            "content": (
+                "Hey, I'm your trading co-pilot. Ask me about the market, "
+                "chart signals, or build a strategy in the Strategies tab."
+            ),
+        }
+    ]
+if "voice_enabled" not in st.session_state:
+    st.session_state.voice_enabled = True
+if "anthropic_api_key" not in st.session_state:
+    st.session_state.anthropic_api_key = ""
+if "claude_model" not in st.session_state:
+    st.session_state.claude_model = "claude-sonnet-4-5"
+if "my_strategies" not in st.session_state:
+    st.session_state.my_strategies = []
+if "last_spoken_index" not in st.session_state:
+    st.session_state.last_spoken_index = -1
+if "pending_voice_text" not in st.session_state:
+    st.session_state.pending_voice_text = ""
+
+# A few ready-made strategy templates users can clone into "My Strategies"
+POPULAR_STRATEGIES = [
+    {
+        "name": "Mean Reversion (Z-Score)",
+        "description": "Fades price extremes: enters when price is statistically "
+        "stretched from its 20-period mean and expects reversion.",
+        "entry_rule": "Z-Score below -1.8 → BUY  |  Z-Score above +1.8 → SELL",
+        "stop_loss_pct": 0.8,
+        "take_profit_pct": 1.6,
+    },
+    {
+        "name": "Breakout Momentum",
+        "description": "Follows the trend: enters on a volume-confirmed breakout "
+        "past a recent pivot high/low.",
+        "entry_rule": "Volume Surge above 2.0x AND price breaks 5-bar pivot → BUY/SELL with trend",
+        "stop_loss_pct": 1.2,
+        "take_profit_pct": 3.0,
+    },
+    {
+        "name": "Volatility Squeeze",
+        "description": "Waits for rolling volatility to compress, then trades the "
+        "expansion in whichever direction it breaks.",
+        "entry_rule": "Rolling Volatility in bottom 20th percentile, then breakout → enter with breakout direction",
+        "stop_loss_pct": 1.0,
+        "take_profit_pct": 2.5,
+    },
+]
+
 # Navigation page list
 NAV_OPTIONS = [
     "📊 Dashboard",
@@ -45,6 +99,57 @@ NAV_OPTIONS = [
 # Callback to switch pages from Quick Action buttons
 def switch_page(target_page):
     st.session_state.active_tab = target_page
+
+
+def ask_claude(user_text, context_summary=""):
+    """Send a message + recent chat history to the real Anthropic API."""
+    try:
+        import anthropic
+    except ImportError:
+        return (
+            "⚠️ The `anthropic` package isn't installed in this environment. "
+            "Run `pip install anthropic` and restart the app."
+        )
+
+    if not st.session_state.anthropic_api_key:
+        return (
+            "⚠️ Add your Anthropic API key in the bot's Settings tab (or the app's "
+            "⚙️ Settings page) to enable AI responses."
+        )
+
+    try:
+        client = anthropic.Anthropic(api_key=st.session_state.anthropic_api_key)
+        system_prompt = (
+            "You are the trading co-pilot embedded in the 'Smart Session Anomaly "
+            "Detector' app. Give concise, practical answers about market structure, "
+            "the user's saved strategies, and chart signals. When giving a trade "
+            "idea, briefly note the reasoning and always add a short reminder that "
+            "this is not financial advice."
+            + (f"\n\nCurrent context:\n{context_summary}" if context_summary else "")
+        )
+        history = [
+            {"role": m["role"], "content": m["content"]}
+            for m in st.session_state.chat_messages[-10:]
+        ]
+        response = client.messages.create(
+            model=st.session_state.claude_model,
+            max_tokens=600,
+            system=system_prompt,
+            messages=history + [{"role": "user", "content": user_text}],
+        )
+        return "".join(
+            block.text for block in response.content if hasattr(block, "text")
+        )
+    except Exception as e:
+        return f"⚠️ Claude API error: {e}"
+
+
+def send_chat_message(user_text, context_summary=""):
+    if not user_text or not user_text.strip():
+        return
+    st.session_state.chat_messages.append({"role": "user", "content": user_text.strip()})
+    reply = ask_claude(user_text.strip(), context_summary)
+    st.session_state.chat_messages.append({"role": "assistant", "content": reply})
 
 
 # --- SIDEBAR NAVIGATION ---
@@ -233,6 +338,287 @@ with st.container(border=True):
     t3.metric("🇮🇳 NIFTY 50", "24,310.80", "-0.24%")
     t4.metric("🇺🇸 S&P 500", "5,840.10", "+0.41%")
     t5.metric("💱 EUR/USD", "1.0825", "-0.08%")
+
+# ==========================================
+# 🤖 FLOATING TRANSLUCENT AI BOT
+# Rendered every rerun, outside the tab if/elif chain, so it stays visible
+# and usable no matter which nav tab is currently selected.
+# ==========================================
+st.markdown(
+    """
+    <style>
+    /* Floating round toggle button */
+    div[data-testid="stButton"]:has(.ssad-fab-anchor),
+    .st-key-ssad_bot_fab {
+        position: fixed !important;
+        bottom: 24px !important;
+        right: 24px !important;
+        z-index: 1000000 !important;
+        width: 62px !important;
+    }
+    .st-key-ssad_bot_fab button {
+        border-radius: 50% !important;
+        width: 62px !important;
+        height: 62px !important;
+        font-size: 26px !important;
+        background: rgba(255, 255, 255, 0.10) !important;
+        backdrop-filter: blur(12px) saturate(150%) !important;
+        -webkit-backdrop-filter: blur(12px) saturate(150%) !important;
+        border: 1px solid rgba(255, 255, 255, 0.28) !important;
+        box-shadow: 0 6px 22px rgba(0,0,0,0.45) !important;
+    }
+    /* Floating translucent chat panel */
+    .st-key-ssad_bot_panel {
+        position: fixed !important;
+        bottom: 96px !important;
+        right: 24px !important;
+        width: 400px !important;
+        max-height: 68vh !important;
+        overflow-y: auto !important;
+        z-index: 999999 !important;
+        background: rgba(14, 17, 27, 0.55) !important;
+        backdrop-filter: blur(20px) saturate(150%) !important;
+        -webkit-backdrop-filter: blur(20px) saturate(150%) !important;
+        border: 1px solid rgba(255, 255, 255, 0.16) !important;
+        border-radius: 18px !important;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.5) !important;
+        padding: 6px 4px !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+fab_label = "✖" if st.session_state.bot_open else "🤖"
+if st.button(fab_label, key="ssad_bot_fab", help="AI Trading Co-Pilot"):
+    st.session_state.bot_open = not st.session_state.bot_open
+    st.rerun()
+
+if st.session_state.bot_open:
+    with st.container(key="ssad_bot_panel"):
+        st.markdown("##### 🤖 AI Trading Co-Pilot")
+        bot_tab_chat, bot_tab_signals, bot_tab_strat, bot_tab_set = st.tabs(
+            ["💬 Chat", "📡 Signals", "🧠 Strategies", "⚙️"]
+        )
+
+        # ---------------- CHAT TAB (text + voice) ----------------
+        with bot_tab_chat:
+            for msg in st.session_state.chat_messages[-30:]:
+                with st.chat_message(msg["role"]):
+                    st.write(msg["content"])
+
+            # Text-to-speech: speak the newest assistant reply once, in-browser
+            last_idx = len(st.session_state.chat_messages) - 1
+            if (
+                st.session_state.voice_enabled
+                and last_idx >= 0
+                and st.session_state.chat_messages[last_idx]["role"] == "assistant"
+                and last_idx != st.session_state.last_spoken_index
+            ):
+                speak_text = (
+                    st.session_state.chat_messages[last_idx]["content"]
+                    .replace("`", "")
+                    .replace("\n", " ")
+                    .replace('"', "'")
+                )
+                components.html(
+                    f"""
+                    <script>
+                    try {{
+                        const u = new SpeechSynthesisUtterance("{speak_text[:600]}");
+                        u.rate = 1.0;
+                        window.parent.speechSynthesis.cancel();
+                        window.parent.speechSynthesis.speak(u);
+                    }} catch (e) {{}}
+                    </script>
+                    """,
+                    height=0,
+                )
+                st.session_state.last_spoken_index = last_idx
+
+            voice_col, text_col, send_col = st.columns([0.16, 0.64, 0.2])
+            with voice_col:
+                # Voice input via the browser's built-in Web Speech API (Chrome/Edge).
+                # Recognized speech is written into the text box below and
+                # auto-submitted by simulating a click on the Send button.
+                components.html(
+                    """
+                    <button id="ssad_mic_btn" style="width:100%;height:38px;border-radius:8px;
+                        border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.08);
+                        color:white;cursor:pointer;font-size:16px;">🎤</button>
+                    <script>
+                    const btn = document.getElementById('ssad_mic_btn');
+                    btn.addEventListener('click', function() {
+                        const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
+                        if (!SpeechRecognition) {
+                            alert('Voice input needs Chrome or Edge.');
+                            return;
+                        }
+                        const rec = new SpeechRecognition();
+                        rec.lang = 'en-US';
+                        rec.interimResults = false;
+                        btn.innerText = '🔴';
+                        rec.onresult = function(e) {
+                            const text = e.results[0][0].transcript;
+                            const doc = window.parent.document;
+                            const inputs = doc.querySelectorAll('textarea, input[type="text"]');
+                            let target = null;
+                            inputs.forEach(function(el) {
+                                if (el.placeholder && el.placeholder.indexOf('Ask about the market') !== -1) {
+                                    target = el;
+                                }
+                            });
+                            if (target) {
+                                const setter = Object.getOwnPropertyDescriptor(
+                                    window.parent.HTMLTextAreaElement.prototype.value !== undefined
+                                        ? window.parent.HTMLTextAreaElement.prototype
+                                        : window.parent.HTMLInputElement.prototype,
+                                    'value'
+                                ).set;
+                                setter.call(target, text);
+                                target.dispatchEvent(new Event('input', { bubbles: true }));
+                            }
+                            btn.innerText = '🎤';
+                        };
+                        rec.onerror = function() { btn.innerText = '🎤'; };
+                        rec.onend = function() { btn.innerText = '🎤'; };
+                        rec.start();
+                    });
+                    </script>
+                    """,
+                    height=44,
+                )
+            with text_col:
+                chat_text = st.text_input(
+                    "Message",
+                    key="ssad_chat_text_input",
+                    placeholder="Ask about the market or your strategy...",
+                    label_visibility="collapsed",
+                )
+            with send_col:
+                if st.button("Send", key="ssad_chat_send", use_container_width=True):
+                    if chat_text:
+                        send_chat_message(chat_text)
+                        st.rerun()
+
+        # ---------------- SIGNALS TAB ----------------
+        with bot_tab_signals:
+            sig_df = global_df.copy()
+            if len(sig_df) >= 20:
+                sig_df["ret"] = sig_df["Close"].pct_change()
+                z = (
+                    (sig_df["Close"] - sig_df["Close"].rolling(20).mean())
+                    / (sig_df["Close"].rolling(20).std() + 1e-8)
+                ).iloc[-1]
+                vol_surge = (
+                    sig_df["Volume"] / (sig_df["Volume"].rolling(20).mean() + 1e-8)
+                ).iloc[-1]
+
+                if z <= -1.8:
+                    call, reason = "🟢 BUY (mean-reversion)", "Price is statistically stretched below its mean."
+                elif z >= 1.8:
+                    call, reason = "🔴 SELL (mean-reversion)", "Price is statistically stretched above its mean."
+                elif vol_surge >= 2.0:
+                    call, reason = "🟡 WATCH (volume surge)", "Volume is surging — a breakout may be forming."
+                else:
+                    call, reason = "⚪ HOLD", "No statistically significant edge right now."
+
+                st.metric("Current Signal", call)
+                st.caption(f"Z-Score: {z:.2f}  |  Volume Surge: {vol_surge:.2f}x")
+                st.write(reason)
+
+                sig_context = (
+                    f"Instrument: Gold (XAU/USD). Latest price {global_price:.2f}. "
+                    f"Z-Score {z:.2f}, Volume Surge {vol_surge:.2f}x. "
+                    f"Rule-based call: {call}."
+                )
+                if st.button("Ask Claude to interpret this signal", key="ssad_sig_ask"):
+                    send_chat_message(
+                        "Interpret the current chart signal and suggest what to watch for next.",
+                        context_summary=sig_context,
+                    )
+                    st.rerun()
+            else:
+                st.info("Not enough data loaded yet for a signal.")
+
+        # ---------------- STRATEGIES / EA BUILDER TAB ----------------
+        with bot_tab_strat:
+            st.caption("Popular templates")
+            for tmpl in POPULAR_STRATEGIES:
+                with st.expander(tmpl["name"]):
+                    st.write(tmpl["description"])
+                    st.caption(f"Rule: {tmpl['entry_rule']}")
+                    st.caption(
+                        f"SL {tmpl['stop_loss_pct']}%  |  TP {tmpl['take_profit_pct']}%"
+                    )
+                    if st.button("Use as my EA", key=f"ssad_use_{tmpl['name']}"):
+                        st.session_state.my_strategies.append(dict(tmpl))
+                        st.rerun()
+
+            st.divider()
+            st.caption("Build your own EA")
+            with st.form("ssad_new_strategy_form", clear_on_submit=True):
+                new_name = st.text_input("Strategy name")
+                new_rule = st.text_area(
+                    "Entry rule (plain language, e.g. 'RSI below 30 and volume surge above 1.5x → BUY')"
+                )
+                new_sl = st.number_input("Stop Loss (%)", value=1.0, step=0.1)
+                new_tp = st.number_input("Take Profit (%)", value=2.0, step=0.1)
+                if st.form_submit_button("Save Strategy"):
+                    if new_name and new_rule:
+                        st.session_state.my_strategies.append(
+                            {
+                                "name": new_name,
+                                "description": "Custom user-defined EA.",
+                                "entry_rule": new_rule,
+                                "stop_loss_pct": new_sl,
+                                "take_profit_pct": new_tp,
+                            }
+                        )
+                        st.rerun()
+
+            if st.session_state.my_strategies:
+                st.divider()
+                st.caption("My saved strategies")
+                for i, strat in enumerate(st.session_state.my_strategies):
+                    with st.expander(f"📌 {strat['name']}"):
+                        st.write(strat["description"])
+                        st.caption(f"Rule: {strat['entry_rule']}")
+                        st.caption(
+                            f"SL {strat['stop_loss_pct']}%  |  TP {strat['take_profit_pct']}%"
+                        )
+                        col_bt, col_del = st.columns(2)
+                        if col_bt.button("Ask Claude to review", key=f"ssad_review_{i}"):
+                            send_chat_message(
+                                "Review this trading strategy and point out strengths, "
+                                "weaknesses, and any risk-management gaps.",
+                                context_summary=(
+                                    f"Strategy '{strat['name']}' — rule: {strat['entry_rule']}, "
+                                    f"SL {strat['stop_loss_pct']}%, TP {strat['take_profit_pct']}%."
+                                ),
+                            )
+                            st.rerun()
+                        if col_del.button("Delete", key=f"ssad_del_{i}"):
+                            st.session_state.my_strategies.pop(i)
+                            st.rerun()
+
+        # ---------------- BOT SETTINGS TAB ----------------
+        with bot_tab_set:
+            st.session_state.anthropic_api_key = st.text_input(
+                "Anthropic API key",
+                value=st.session_state.anthropic_api_key,
+                type="password",
+            )
+            st.session_state.claude_model = st.text_input(
+                "Claude model", value=st.session_state.claude_model
+            )
+            st.session_state.voice_enabled = st.checkbox(
+                "Speak replies out loud", value=st.session_state.voice_enabled
+            )
+            st.caption(
+                "Voice input/output uses your browser's built-in speech engine "
+                "(Chrome/Edge work best) — no extra key needed for that part."
+            )
 
 # ==========================================
 # 📊 VIEW 1: DASHBOARD
