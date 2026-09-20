@@ -6,7 +6,6 @@ from plotly.subplots import make_subplots
 from sklearn.ensemble import IsolationForest
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
-import streamlit.components.v1 as components
 from tradingview_ta import Interval, TA_Handler
 import yfinance as yf
 
@@ -99,6 +98,10 @@ NAV_OPTIONS = [
 # Callback to switch pages from Quick Action buttons
 def switch_page(target_page):
     st.session_state.active_tab = target_page
+
+
+def open_bot():
+    st.session_state.bot_open = True
 
 
 def ask_claude(user_text, context_summary=""):
@@ -347,31 +350,31 @@ with st.container(border=True):
 st.markdown(
     """
     <style>
-    /* Floating round toggle button */
-    div[data-testid="stButton"]:has(.ssad-fab-anchor),
+    /* Floating pill-shaped toggle button, bottom-right of the viewport */
     .st-key-ssad_bot_fab {
         position: fixed !important;
-        bottom: 24px !important;
-        right: 24px !important;
+        bottom: 28px !important;
+        right: 28px !important;
         z-index: 1000000 !important;
-        width: 62px !important;
+        width: auto !important;
     }
     .st-key-ssad_bot_fab button {
-        border-radius: 50% !important;
-        width: 62px !important;
-        height: 62px !important;
-        font-size: 26px !important;
-        background: rgba(255, 255, 255, 0.10) !important;
-        backdrop-filter: blur(12px) saturate(150%) !important;
-        -webkit-backdrop-filter: blur(12px) saturate(150%) !important;
-        border: 1px solid rgba(255, 255, 255, 0.28) !important;
-        box-shadow: 0 6px 22px rgba(0,0,0,0.45) !important;
+        border-radius: 30px !important;
+        padding: 14px 22px !important;
+        font-size: 17px !important;
+        font-weight: 600 !important;
+        background: rgba(80, 140, 255, 0.22) !important;
+        backdrop-filter: blur(14px) saturate(160%) !important;
+        -webkit-backdrop-filter: blur(14px) saturate(160%) !important;
+        border: 1px solid rgba(140, 180, 255, 0.55) !important;
+        box-shadow: 0 6px 26px rgba(0,0,0,0.5), 0 0 0 4px rgba(80,140,255,0.08) !important;
+        color: #fff !important;
     }
     /* Floating translucent chat panel */
     .st-key-ssad_bot_panel {
         position: fixed !important;
-        bottom: 96px !important;
-        right: 24px !important;
+        bottom: 104px !important;
+        right: 28px !important;
         width: 400px !important;
         max-height: 68vh !important;
         overflow-y: auto !important;
@@ -389,8 +392,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-fab_label = "✖" if st.session_state.bot_open else "🤖"
-if st.button(fab_label, key="ssad_bot_fab", help="AI Trading Co-Pilot"):
+fab_label = "✖ Close" if st.session_state.bot_open else "🤖 AI Co-Pilot"
+if st.button(fab_label, key="ssad_bot_fab", help="Chat, signals & strategy builder"):
     st.session_state.bot_open = not st.session_state.bot_open
     st.rerun()
 
@@ -421,7 +424,7 @@ if st.session_state.bot_open:
                     .replace("\n", " ")
                     .replace('"', "'")
                 )
-                components.html(
+                st.iframe(
                     f"""
                     <script>
                     try {{
@@ -432,7 +435,7 @@ if st.session_state.bot_open:
                     }} catch (e) {{}}
                     </script>
                     """,
-                    height=0,
+                    height=1,
                 )
                 st.session_state.last_spoken_index = last_idx
 
@@ -441,7 +444,7 @@ if st.session_state.bot_open:
                 # Voice input via the browser's built-in Web Speech API (Chrome/Edge).
                 # Recognized speech is written into the text box below and
                 # auto-submitted by simulating a click on the Send button.
-                components.html(
+                st.iframe(
                     """
                     <button id="ssad_mic_btn" style="width:100%;height:38px;border-radius:8px;
                         border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.08);
@@ -637,7 +640,7 @@ if st.session_state.active_tab == "📊 Dashboard":
     )
 
     st.markdown("### Quick Actions")
-    q1, q2, q3, q4 = st.columns(4)
+    q1, q2, q3, q4, q5 = st.columns(5)
 
     with q1:
         with st.container(border=True):
@@ -687,6 +690,17 @@ if st.session_state.active_tab == "📊 Dashboard":
                 use_container_width=True,
                 on_click=switch_page,
                 args=("📅 Economic Calendar",),
+            )
+
+    with q5:
+        with st.container(border=True):
+            st.markdown("#### 🤖 AI Co-Pilot")
+            st.caption("Chat, voice, live signals & your saved strategies/EAs.")
+            st.button(
+                "Open Co-Pilot →",
+                key="btn_qa_bot",
+                use_container_width=True,
+                on_click=open_bot,
             )
 
     st.divider()
@@ -756,7 +770,7 @@ elif st.session_state.active_tab == "📈 AI Trade & Charts":
           </script>
         </div>
         """
-        components.html(tv_widget_html, height=780, scrolling=False)
+        st.iframe(tv_widget_html, height=780)
 
     with tab_quant:
         active_df = load_ohlcv(inst_cfg["yf"])
