@@ -1,4 +1,5 @@
 from datetime import datetime
+import re
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -180,6 +181,20 @@ def exit_signal(data):
     # Add your exit conditions here
     return False
 """
+if "broker_api_mode" not in st.session_state:
+    st.session_state.broker_api_mode = "Paper / Demo"
+if "broker_name" not in st.session_state:
+    st.session_state.broker_name = "MetaTrader 5 (MT5)"
+if "broker_api_endpoint" not in st.session_state:
+    st.session_state.broker_api_endpoint = ""
+if "broker_api_key" not in st.session_state:
+    st.session_state.broker_api_key = ""
+if "ea_deployments" not in st.session_state:
+    st.session_state.ea_deployments = {}
+if "strategy_library" not in st.session_state:
+    st.session_state.strategy_library = []
+if "last_backtest" not in st.session_state:
+    st.session_state.last_backtest = None
 
 def place_chart_trade(side, lots, asset_name, price):
     st.session_state.positions.insert(
@@ -193,6 +208,89 @@ def place_chart_trade(side, lots, asset_name, price):
             "Bridge": "MT5/REST" if st.session_state.broker_connected else "Demo Simulated",
         },
     )
+
+
+def add_indicators(df, fast=9, slow=21, rsi_period=14, bb_period=20):
+    out = df.copy()
+    out["EMA Fast"] = out["Close"].ewm(span=max(int(fast), 2), adjust=False).mean()
+    out["EMA Slow"] = out["Close"].ewm(span=max(int(slow), 2), adjust=False).mean()
+    delta = out["Close"].diff()
+    gain = delta.clip(lower=0).rolling(max(int(rsi_period), 2)).mean()
+    loss = (-delta.clip(upper=0)).rolling(max(int(rsi_period), 2)).mean()
+    rs = gain / (loss + 1e-9)
+    out["RSI"] = 100 - (100 / (1 + rs))
+    mid = out["Close"].rolling(max(int(bb_period), 2)).mean()
+    std = out["Close"].rolling(max(int(bb_period), 2)).std()
+    out["BB Mid"] = mid
+    out["BB Upper"] = mid + 2 * std
+    out["BB Lower"] = mid - 2 * std
+    out["Volume MA"] = out["Volume"].rolling(20).mean()
+    out["Long Signal"] = (out["EMA Fast"] > out["EMA Slow"]) & (out["EMA Fast"].shift(1) <= out["EMA Slow"].shift(1))
+    out["Short Signal"] = (out["EMA Fast"] < out["EMA Slow"]) & (out["EMA Fast"].shift(1) >= out["EMA Slow"].shift(1))
+    return out
+
+
+def run_strategy_backtest(df, fast, slow, risk_pct=1.0, rr=2.0, starting_balance=100000.0):
+    data = add_indicators(df, fast, slow).dropna().copy()
+    if len(data) < max(int(slow) + 5, 30):
+        return None
+    balance = float(starting_balance)
+    equity_points = []
+    trades = []
+    position = None
+    risk_cash = starting_balance * float(risk_pct) / 100.0
+    for ts, row in data.iterrows():
+        price = float(row["Close"])
+        if position is None:
+            if bool(row["Long Signal"]):
+                sl = price * (1 - 0.006)
+                tp = price + (price - sl) * float(rr)
+                position = {"side":"LONG","entry":price,"sl":sl,"tp":tp,"time":ts}
+            elif bool(row["Short Signal"]):
+                sl = price * (1 + 0.006)
+                tp = price - (sl - price) * float(rr)
+                position = {"side":"SHORT","entry":price,"sl":sl,"tp":tp,"time":ts}
+        else:
+            exit_price = None
+            reason = None
+            if position["side"] == "LONG":
+                if row["Low"] <= position["sl"]:
+                    exit_price, reason = position["sl"], "Stop Loss"
+                elif row["High"] >= position["tp"]:
+                    exit_price, reason = position["tp"], "Take Profit"
+                elif bool(row["Short Signal"]):
+                    exit_price, reason = price, "Opposite Signal"
+            else:
+                if row["High"] >= position["sl"]:
+                    exit_price, reason = position["sl"], "Stop Loss"
+                elif row["Low"] <= position["tp"]:
+                    exit_price, reason = position["tp"], "Take Profit"
+                elif bool(row["Long Signal"]):
+                    exit_price, reason = price, "Opposite Signal"
+            if exit_price is not None:
+                pct = ((exit_price - position["entry"]) / position["entry"] if position["side"] == "LONG" else (position["entry"] - exit_price) / position["entry"])
+                pnl = risk_cash * (pct / 0.006)
+                balance += pnl
+                trades.append({"Entry Time":position["time"],"Exit Time":ts,"Side":position["side"],"Entry":position["entry"],"Exit":exit_price,"P&L":pnl,"Return %":pct*100,"Exit Reason":reason})
+                position = None
+        mark = balance
+        if position:
+            pct = ((price-position["entry"])/position["entry"] if position["side"]=="LONG" else (position["entry"]-price)/position["entry"])
+            mark += risk_cash * (pct / 0.006)
+        equity_points.append((ts, mark))
+    equity = pd.Series(dict(equity_points)).sort_index()
+    if not equity.empty:
+        running = equity.cummax()
+        dd = (equity-running)/running
+        mdd = abs(float(dd.min())*100)
+        returns = equity.pct_change().dropna()
+        sharpe = float((returns.mean()/(returns.std()+1e-9))*np.sqrt(252)) if len(returns)>1 else 0.0
+    else:
+        mdd, sharpe = 0.0, 0.0
+    trade_df = pd.DataFrame(trades)
+    wins = int((trade_df["P&L"] > 0).sum()) if not trade_df.empty else 0
+    win_rate = wins / len(trade_df) * 100 if len(trade_df) else 0.0
+    return {"equity":equity,"trades":trade_df,"net_profit":float(balance-starting_balance),"win_rate":win_rate,"mdd":mdd,"sharpe":sharpe}
 
 # Navigation, grouped for the sidebar
 NAV_GROUPS = {
@@ -938,7 +1036,39 @@ elif st.session_state.active_tab == "📈 Chart Analysis":
         components.html(tv_widget_html, height=780)
 
 
+        # --- PROFESSIONAL TECHNICAL CHART ---
+        st.markdown("### 📊 Technical Chart & Signal Workspace")
+        chart_df = load_ohlcv(inst_cfg["yf"], period="1mo", interval=chart_res)
+        if chart_df is not None and len(chart_df) >= 30:
+            ind_fast, ind_slow = st.columns(2)
+            with ind_fast:
+                tech_fast = st.number_input("Fast EMA", 2, 100, 9, key="tech_fast")
+            with ind_slow:
+                tech_slow = st.number_input("Slow EMA", 3, 200, 21, key="tech_slow")
+            tech_df = add_indicators(chart_df, tech_fast, tech_slow)
+            fig_tech = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.04, row_heights=[0.78,0.22])
+            fig_tech.add_trace(go.Candlestick(x=tech_df.index, open=tech_df["Open"], high=tech_df["High"], low=tech_df["Low"], close=tech_df["Close"], name="Price"), row=1,col=1)
+            fig_tech.add_trace(go.Scatter(x=tech_df.index,y=tech_df["EMA Fast"],name=f"EMA {tech_fast}",mode="lines"),row=1,col=1)
+            fig_tech.add_trace(go.Scatter(x=tech_df.index,y=tech_df["EMA Slow"],name=f"EMA {tech_slow}",mode="lines"),row=1,col=1)
+            fig_tech.add_trace(go.Scatter(x=tech_df.index,y=tech_df["BB Upper"],name="BB Upper",mode="lines",line=dict(dash="dot")),row=1,col=1)
+            fig_tech.add_trace(go.Scatter(x=tech_df.index,y=tech_df["BB Lower"],name="BB Lower",mode="lines",line=dict(dash="dot")),row=1,col=1)
+            longs=tech_df[tech_df["Long Signal"]]; shorts=tech_df[tech_df["Short Signal"]]
+            if not longs.empty: fig_tech.add_trace(go.Scatter(x=longs.index,y=longs["Low"]*0.998,mode="markers",name="LONG",marker=dict(symbol="triangle-up",size=11)),row=1,col=1)
+            if not shorts.empty: fig_tech.add_trace(go.Scatter(x=shorts.index,y=shorts["High"]*1.002,mode="markers",name="SHORT",marker=dict(symbol="triangle-down",size=11)),row=1,col=1)
+            fig_tech.add_trace(go.Bar(x=tech_df.index,y=tech_df["Volume"],name="Volume"),row=2,col=1)
+            fig_tech.update_layout(template="plotly_dark",height=620,xaxis_rangeslider_visible=False,margin=dict(l=10,r=10,t=20,b=10),paper_bgcolor="#0b0e14",plot_bgcolor="#0b0e14")
+            st.plotly_chart(fig_tech,use_container_width=True,config={"scrollZoom":True,"displaylogo":False})
+            latest=tech_df.iloc[-1]
+            s1,s2,s3,s4=st.columns(4)
+            s1.metric("Last Price",f"{latest['Close']:,.2f}")
+            s2.metric("RSI",f"{latest['RSI']:.1f}")
+            s3.metric("EMA Trend","BULLISH" if latest['EMA Fast']>latest['EMA Slow'] else "BEARISH")
+            s4.metric("Volume vs MA",f"{latest['Volume']/max(latest['Volume MA'],1):.2f}x")
+        else:
+            st.info("Technical chart data is still syncing.")
+
         # --- DIRECT TRADE EXECUTION ON ACTIVE CHART ---
+        chart_trade_price = float(chart_df["Close"].iloc[-1]) if chart_df is not None and len(chart_df) else float(global_price)
         st.markdown("### ⚡ Direct Trade Execution")
         trade_col1, trade_col2, trade_col3 = st.columns([1, 1, 2])
         with trade_col1:
@@ -956,10 +1086,10 @@ elif st.session_state.active_tab == "📈 Chart Analysis":
         with trade_col3:
             buy_col, sell_col = st.columns(2)
             if buy_col.button("🟢 BUY / LONG", use_container_width=True, key="chart_buy"):
-                place_chart_trade("BUY", chart_lots, inst_select, global_price)
+                place_chart_trade("BUY", chart_lots, inst_select, chart_trade_price)
                 st.success("BUY order routed from Chart Analysis.")
             if sell_col.button("🔴 SELL / SHORT", use_container_width=True, key="chart_sell"):
-                place_chart_trade("SELL", chart_lots, inst_select, global_price)
+                place_chart_trade("SELL", chart_lots, inst_select, chart_trade_price)
                 st.success("SELL order routed from Chart Analysis.")
 
         # --- EA EXECUTION PANEL ---
@@ -1175,41 +1305,28 @@ elif st.session_state.active_tab == "🧮 Pip & Risk Calculator":
 # ==========================================
 elif st.session_state.active_tab == "⚡ Broker Gateway":
     st.title("⚡ Smart Session Anomaly Detector | Execution Bridge")
-
-    col_g1, col_g2 = st.columns([1, 1.5])
-    with col_g1:
-        st.markdown("#### 🔗 Broker Gateway Setup")
-        target_broker = st.selectbox(
-            "Broker Gateway",
-            [
-                "MetaTrader 5 (MT5)",
-                "Zerodha (Kite)",
-                "Binance Futures",
-                "Interactive Brokers",
-            ],
-        )
-        if not st.session_state.broker_connected:
-            if st.button("Connect Gateway", use_container_width=True):
-                st.session_state.broker_connected = True
-                st.rerun()
-        else:
-            st.success(f"🟢 **{target_broker}** Bridge Active")
-            if st.button("Disconnect Gateway", use_container_width=True):
-                st.session_state.broker_connected = False
-                st.rerun()
-
-    with col_g2:
-        st.markdown("#### 📋 Open Position History")
-        if len(st.session_state.positions) > 0:
-            st.dataframe(
-                pd.DataFrame(st.session_state.positions), use_container_width=True
-            )
-            if st.button("Close All Positions", use_container_width=True):
-                st.session_state.positions = []
-                st.rerun()
-        else:
-            st.caption("No open market positions.")
-
+    st.caption("Broker connection architecture with paper/demo execution by default.")
+    g1,g2=st.columns([1,1.2])
+    with g1:
+        st.markdown("#### 🔗 Connection Profile")
+        st.session_state.broker_name=st.selectbox("Broker / Gateway",["MetaTrader 5 (MT5)","Zerodha (Kite)","Binance Futures","Interactive Brokers"],index=["MetaTrader 5 (MT5)","Zerodha (Kite)","Binance Futures","Interactive Brokers"].index(st.session_state.broker_name))
+        st.session_state.broker_api_mode=st.radio("Execution Mode",["Paper / Demo","Live (manual approval)"],horizontal=True)
+        st.session_state.broker_api_endpoint=st.text_input("API / Bridge Endpoint",value=st.session_state.broker_api_endpoint,placeholder="https://...")
+        st.session_state.broker_api_key=st.text_input("API Key / Account ID",value=st.session_state.broker_api_key,type="password")
+        c1,c2=st.columns(2)
+        with c1:
+            if st.button("🔌 Connect",use_container_width=True): st.session_state.broker_connected=True; st.success("Gateway connected in application demo mode.")
+        with c2:
+            if st.button("⏹ Disconnect",use_container_width=True): st.session_state.broker_connected=False; st.info("Gateway disconnected.")
+        st.info("Live broker-side autonomous execution requires the broker's authenticated API/bridge and is intentionally not enabled by this UI alone.")
+    with g2:
+        st.markdown("#### 📋 Execution Monitor")
+        st.metric("Gateway Status","🟢 Connected" if st.session_state.broker_connected else "⚪ Offline")
+        st.metric("Execution Mode",st.session_state.broker_api_mode)
+        if st.session_state.positions:
+            st.dataframe(pd.DataFrame(st.session_state.positions),use_container_width=True,hide_index=True)
+            if st.button("Close All Demo Positions",use_container_width=True): st.session_state.positions=[]; st.rerun()
+        else: st.caption("No open positions in the application session.")
 
 # ==========================================
 # 🧩 VIEW 5: STRATEGY BUILDER
@@ -1282,60 +1399,35 @@ elif st.session_state.active_tab == "🧩 Strategy Builder":
         run_bt = st.button("▶ Run Backtest", use_container_width=True, key="run_backtest")
 
     if run_bt:
-        bt_cfg = None
-        for group in MARKET_UNIVERSE.values():
-            if bt_asset in group:
-                bt_cfg = group[bt_asset]
-                break
+        bt_cfg = next((group[bt_asset] for group in MARKET_UNIVERSE.values() if bt_asset in group), None)
         if bt_cfg:
             bt_df = load_ohlcv(bt_cfg["yf"], period=bt_period, interval=bt_tf)
-            if len(bt_df) >= 30:
-                close = bt_df["Close"].astype(float)
-                fast = close.rolling(int(fast_param)).mean()
-                slow = close.rolling(int(slow_param)).mean()
-                signal = (fast > slow).astype(int)
-                strategy_ret = close.pct_change().fillna(0) * signal.shift(1).fillna(0)
-                equity = (1 + strategy_ret).cumprod() * 100000
-                trades = signal.diff().abs().fillna(0)
-                wins = int((strategy_ret[signal.shift(1).fillna(0) > 0] > 0).sum())
-                active_trades = max(int(trades.sum()), 1)
-                net_profit = float(equity.iloc[-1] - 100000)
-                win_rate = float(wins / max(int((signal.shift(1).fillna(0) > 0).sum()), 1) * 100)
-                running_max = equity.cummax()
-                drawdown = (equity - running_max) / running_max
-                mdd = abs(float(drawdown.min()) * 100)
-                sharpe = float(strategy_ret.mean() / (strategy_ret.std() + 1e-9) * np.sqrt(252))
-                metrics = st.columns(4)
-                metrics[0].metric("Net Profit", f"${net_profit:,.2f}")
-                metrics[1].metric("Win Rate", f"{win_rate:.1f}%")
-                metrics[2].metric("MDD", f"{mdd:.2f}%")
-                metrics[3].metric("Sharpe Ratio", f"{sharpe:.2f}")
-
-                bt_fig = go.Figure()
-                bt_fig.add_trace(go.Scatter(x=equity.index, y=equity, mode="lines", name="Equity"))
-                bt_fig.update_layout(
-                    template="plotly_dark",
-                    title="Equity Curve",
-                    height=360,
-                    margin=dict(l=10, r=10, t=40, b=10),
-                    paper_bgcolor="#0b0e14",
-                    plot_bgcolor="#0b0e14",
-                )
-                st.plotly_chart(bt_fig, use_container_width=True)
-
-                trade_log = pd.DataFrame({
-                    "Timestamp": bt_df.index,
-                    "Close": close.values,
-                    "Signal": np.where(signal.values > 0, "LONG", "FLAT"),
-                    "Strategy Return": strategy_ret.values,
-                    "Equity": equity.values,
-                })
-                st.markdown("##### Detailed Trade Log")
-                st.dataframe(trade_log.tail(100), use_container_width=True)
+            result = run_strategy_backtest(bt_df, fast_param, slow_param, risk_param, rr_param)
+            if result:
+                st.session_state.last_backtest = result
             else:
                 st.warning("Not enough historical data for this backtest.")
         else:
             st.warning("Asset configuration not found.")
+
+    if st.session_state.last_backtest:
+        result = st.session_state.last_backtest
+        metrics = st.columns(5)
+        metrics[0].metric("Net Profit", f"${result['net_profit']:,.2f}")
+        metrics[1].metric("Win Rate", f"{result['win_rate']:.1f}%")
+        metrics[2].metric("MDD", f"{result['mdd']:.2f}%")
+        metrics[3].metric("Sharpe Ratio", f"{result['sharpe']:.2f}")
+        metrics[4].metric("Trades", f"{len(result['trades'])}")
+        eq=result["equity"]
+        fig_eq=go.Figure()
+        fig_eq.add_trace(go.Scatter(x=eq.index,y=eq.values,mode="lines",name="Equity"))
+        fig_eq.update_layout(template="plotly_dark",title="Equity Curve",height=360,margin=dict(l=10,r=10,t=40,b=10),paper_bgcolor="#0b0e14",plot_bgcolor="#0b0e14")
+        st.plotly_chart(fig_eq,use_container_width=True)
+        if not result["trades"].empty:
+            st.markdown("##### Detailed Trade Log")
+            st.dataframe(result["trades"].tail(200),use_container_width=True,hide_index=True)
+        else:
+            st.info("No completed trades were generated for this configuration.")
 
 # ==========================================
 # 🤖 VIEW 6: EA / EXPERT ADVISORS
@@ -1364,6 +1456,15 @@ elif st.session_state.active_tab == "🤖 EA / Expert Advisors":
             ea_risk = st.slider("Risk per Trade %", 0.25, 5.0, 1.0, 0.25)
             ea_max_lots = st.number_input("Max Lots", min_value=0.01, max_value=100.0, value=1.0, step=0.01)
 
+        st.markdown("#### 🛡 Risk & Trade Management")
+        rm1, rm2, rm3 = st.columns(3)
+        with rm1:
+            ea_trailing = st.number_input("Trailing Stop %", 0.0, 10.0, 0.0, 0.05)
+        with rm2:
+            ea_breakeven = st.number_input("Breakeven Trigger (R)", 0.0, 5.0, 1.0, 0.25)
+        with rm3:
+            ea_max_trades = st.number_input("Max Trades / Day", 1, 100, 5, 1)
+
         st.markdown("#### Execution Parameters")
         x1, x2, x3 = st.columns(3)
         with x1:
@@ -1391,6 +1492,9 @@ elif st.session_state.active_tab == "🤖 EA / Expert Advisors":
                 "take_profit_pct": ea_tp,
                 "risk_pct": ea_risk,
                 "max_lots": ea_max_lots,
+                "trailing_stop_pct": ea_trailing,
+                "breakeven_r": ea_breakeven,
+                "max_trades_day": ea_max_trades,
                 "timeframe": ea_tf,
                 "session": ea_session,
                 "mode": ea_mode,
@@ -1421,26 +1525,27 @@ elif st.session_state.active_tab == "🤖 EA / Expert Advisors":
             st.info("No custom EAs saved yet. Build one in the EA Builder.")
 
     with ea_tab3:
-        deploy_asset = st.selectbox("Deploy to Asset", list(MARKET_UNIVERSE["🇮🇳 Indian Equities (NSE)"].keys()) + ["Gold (XAU/USD)", "EUR/USD", "Bitcoin (BTC/USDT)"], key="deploy_asset")
-        deploy_ea = st.selectbox(
-            "EA",
-            ["None"] + [x["name"] for x in st.session_state.saved_eas] + [x["name"] for x in EA_TEMPLATES],
-            key="deploy_ea",
-        )
-        d1, d2 = st.columns(2)
+        deploy_assets = st.multiselect("Deploy to Assets", list(MARKET_UNIVERSE["🇮🇳 Indian Equities (NSE)"].keys()) + ["Gold (XAU/USD)","EUR/USD","Bitcoin (BTC/USDT)"], default=[])
+        deploy_ea = st.selectbox("EA", ["None"] + [x["name"] for x in st.session_state.saved_eas] + [x["name"] for x in EA_TEMPLATES], key="deploy_ea")
+        d1,d2,d3=st.columns(3)
         with d1:
-            if st.button("📥 Load on Chart", use_container_width=True, key="deploy_load"):
-                st.session_state.active_ea = None if deploy_ea == "None" else deploy_ea
-                st.session_state.ea_enabled = False
-                st.success(f"{deploy_ea} loaded for {deploy_asset}.")
+            deploy_mode=st.selectbox("Deployment Mode",["Paper / Demo","Signal Only","Live (manual approval)"],key="deploy_mode")
         with d2:
-            if st.button("▶ Enable / Trigger", use_container_width=True, key="deploy_trigger"):
-                if deploy_ea != "None":
-                    st.session_state.active_ea = deploy_ea
-                    st.session_state.ea_enabled = True
-                    st.success(f"{deploy_ea} enabled for {deploy_asset}.")
-                else:
-                    st.warning("Select an EA first.")
+            deploy_risk=st.slider("Deployment Risk %",0.25,5.0,1.0,0.25,key="deploy_risk")
+        with d3:
+            deploy_enabled=st.toggle("Enable After Load",value=False,key="deploy_enabled")
+        if st.button("🚀 Deploy EA",use_container_width=True,key="deploy_ea_now"):
+            if deploy_ea=="None" or not deploy_assets:
+                st.warning("Select an EA and at least one asset.")
+            else:
+                for asset in deploy_assets:
+                    st.session_state.ea_deployments[asset]={"EA":deploy_ea,"Mode":deploy_mode,"Risk %":deploy_risk,"Enabled":deploy_enabled}
+                st.session_state.active_ea=deploy_ea
+                st.session_state.ea_enabled=deploy_enabled
+                st.success(f"{deploy_ea} configured for {len(deploy_assets)} asset(s).")
+        if st.session_state.ea_deployments:
+            st.markdown("##### Active Deployments")
+            st.dataframe(pd.DataFrame.from_dict(st.session_state.ea_deployments,orient="index").reset_index().rename(columns={"index":"Asset"}),use_container_width=True,hide_index=True)
 
     st.divider()
     st.markdown("#### 📋 Current Deployment")
@@ -1529,3 +1634,6 @@ elif st.session_state.active_tab == "⚙️ Settings":
     st.write("Architecture: Python Quant Pipeline + Isolation Forest ML")
     st.write("Data Stream Latency: 20 Seconds Auto-Sync")
     st.selectbox("Base Currency", ["USD ($)", "INR (₹)", "EUR (€)"])
+    st.divider()
+    st.markdown("#### 🧩 Platform Modules")
+    st.write({"Chart Analysis": "Technical chart + direct execution", "EA Engine": "Builder / Library / Deployment", "Backtesting": "Historical simulation + metrics", "Broker Bridge": st.session_state.broker_name, "Default Execution": st.session_state.broker_api_mode})
