@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from sklearn.ensemble import IsolationForest
 import streamlit as st
+import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
 from tradingview_ta import Interval, TA_Handler
 import yfinance as yf
@@ -16,6 +17,42 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# --- GLOBAL BACKGROUND + HEADER STYLING ---
+st.markdown(
+    """
+    <style>
+    .stApp {
+        background:
+            linear-gradient(rgba(6,8,14,0.92), rgba(6,8,14,0.95)),
+            repeating-linear-gradient(135deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 2px, transparent 2px, transparent 28px),
+            radial-gradient(circle at 15% 10%, rgba(80,140,255,0.10), transparent 40%),
+            radial-gradient(circle at 85% 90%, rgba(255,80,140,0.08), transparent 40%),
+            #05070c;
+        background-attachment: fixed;
+    }
+    .ssad-page-header {
+        font-size: 1.55rem;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        padding: 2px 0 10px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+        margin-bottom: 14px;
+    }
+    .ssad-page-header span { color: rgba(255,255,255,0.55); font-weight: 500; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+def page_header(subtitle):
+    st.markdown(
+        f'<div class="ssad-page-header">⚡ Smart Session Anomaly Detector '
+        f'<span>| {subtitle}</span></div>',
+        unsafe_allow_html=True,
+    )
+
 
 # Auto-refresh session feed every 20 seconds
 st_autorefresh(interval=20000, key="ssad_feed_sync")
@@ -56,43 +93,49 @@ if "last_spoken_index" not in st.session_state:
 if "pending_voice_text" not in st.session_state:
     st.session_state.pending_voice_text = ""
 
-# A few ready-made strategy templates users can clone into "My Strategies"
+# Popular institutional strategy setups users can clone into "My Strategies"
 POPULAR_STRATEGIES = [
     {
-        "name": "Mean Reversion (Z-Score)",
-        "description": "Fades price extremes: enters when price is statistically "
-        "stretched from its 20-period mean and expects reversion.",
-        "entry_rule": "Z-Score below -1.8 → BUY  |  Z-Score above +1.8 → SELL",
+        "name": "Liquidity Sweep",
+        "description": "Waits for price to sweep resting stops beyond an obvious "
+        "high/low (a liquidity grab), then fades back into range on the reversal.",
+        "entry_rule": "Wick sweeps prior session High/Low + fast reclaim → enter against the sweep direction",
+        "stop_loss_pct": 0.6,
+        "take_profit_pct": 1.8,
+    },
+    {
+        "name": "Order Block Mitigation",
+        "description": "Institutional order-flow concept: re-enters at the last "
+        "opposing candle before a strong impulse move, expecting price to "
+        "mitigate (retest) that zone before continuing.",
+        "entry_rule": "Price returns to the last down-candle before an up-impulse (or vice versa) → enter with impulse direction",
         "stop_loss_pct": 0.8,
-        "take_profit_pct": 1.6,
+        "take_profit_pct": 2.4,
     },
     {
-        "name": "Breakout Momentum",
-        "description": "Follows the trend: enters on a volume-confirmed breakout "
-        "past a recent pivot high/low.",
-        "entry_rule": "Volume Surge above 2.0x AND price breaks 5-bar pivot → BUY/SELL with trend",
-        "stop_loss_pct": 1.2,
-        "take_profit_pct": 3.0,
-    },
-    {
-        "name": "Volatility Squeeze",
-        "description": "Waits for rolling volatility to compress, then trades the "
-        "expansion in whichever direction it breaks.",
-        "entry_rule": "Rolling Volatility in bottom 20th percentile, then breakout → enter with breakout direction",
+        "name": "Session Breakout",
+        "description": "Trades the initial range of a new trading session (e.g. "
+        "London/NY open), entering on a confirmed breakout of that opening range.",
+        "entry_rule": "Price closes beyond first 30-min session range with Volume Surge above 1.5x → enter with breakout direction",
         "stop_loss_pct": 1.0,
         "take_profit_pct": 2.5,
     },
 ]
 
-# Navigation page list
-NAV_OPTIONS = [
-    "📊 Dashboard",
-    "📈 AI Trade & Charts",
-    "🧮 Pip & Risk Calculator",
-    "⚡ Broker Gateway",
-    "📅 Economic Calendar",
-    "⚙️ Settings",
-]
+# Navigation, grouped for the sidebar
+NAV_GROUPS = {
+    "CORE": ["📊 Dashboard"],
+    "ANALYTICS & EXECUTION": [
+        "📈 AI Trade & Charts",
+        "🧮 Pip & Risk Calculator",
+        "⚡ Broker Gateway",
+    ],
+    "INTELLIGENCE": [
+        "🧩 Strategy Builder",
+        "📅 Economic Calendar",
+    ],
+}
+NAV_OPTIONS = [item for group in NAV_GROUPS.values() for item in group] + ["⚙️ Settings"]
 
 
 # Callback to switch pages from Quick Action buttons
@@ -155,19 +198,92 @@ def send_chat_message(user_text, context_summary=""):
     st.session_state.chat_messages.append({"role": "assistant", "content": reply})
 
 
-# --- SIDEBAR NAVIGATION ---
-st.sidebar.title("⚡ Smart Session Anomaly Detector")
-st.sidebar.caption("Quantitative Market Pattern Engine")
-
-selected_nav = st.sidebar.radio(
-    "Navigation Menu", NAV_OPTIONS, key="active_tab", label_visibility="collapsed"
+# --- SIDEBAR: GLASSMORPHISM + GROUPED NAVIGATION ---
+st.markdown(
+    """
+    <style>
+    [data-testid="stSidebar"] {
+        background: rgba(12, 15, 24, 0.55) !important;
+        backdrop-filter: blur(18px) saturate(150%) !important;
+        -webkit-backdrop-filter: blur(18px) saturate(150%) !important;
+        border-right: 1px solid rgba(255,255,255,0.08) !important;
+    }
+    .ssad-logo-badge {
+        display: flex; align-items: center; gap: 10px;
+        padding: 10px 4px 6px 4px;
+    }
+    .ssad-logo-badge .icon {
+        font-size: 26px; background: rgba(80,140,255,0.18);
+        border: 1px solid rgba(140,180,255,0.4); border-radius: 10px;
+        width: 42px; height: 42px; display: flex; align-items: center; justify-content: center;
+    }
+    .ssad-logo-badge .name { font-weight: 700; font-size: 1.05rem; line-height: 1.1; }
+    .ssad-logo-badge .sub { font-size: 0.72rem; color: rgba(255,255,255,0.5); }
+    .ssad-status-pill {
+        display: inline-block; padding: 4px 10px; border-radius: 20px;
+        background: rgba(0, 200, 130, 0.14); border: 1px solid rgba(0,200,130,0.4);
+        color: #4ade80; font-size: 0.72rem; font-weight: 600; margin: 6px 0 14px 0;
+    }
+    .ssad-nav-group-label {
+        font-size: 0.68rem; letter-spacing: 1.2px; color: rgba(255,255,255,0.4);
+        font-weight: 700; margin: 14px 2px 4px 2px;
+    }
+    .st-key-ssad_footer_metrics { font-size: 0.75rem; }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
-st.sidebar.divider()
-with st.sidebar.container(border=True):
-    st.caption("ACTIVE TERMINAL")
-    st.write("**Quantitative Engine**")
-    st.write("Status: 🟢 `Anomaly Pipeline Active`")
+with st.sidebar:
+    st.markdown(
+        """
+        <div class="ssad-logo-badge">
+            <div class="icon">⚡</div>
+            <div>
+                <div class="name">SSAD</div>
+                <div class="sub">Smart Session Anomaly Detector</div>
+            </div>
+        </div>
+        <div class="ssad-status-pill">🟢 ML ENGINE ONLINE</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    for group_name, items in NAV_GROUPS.items():
+        st.markdown(f'<div class="ssad-nav-group-label">{group_name}</div>', unsafe_allow_html=True)
+        for item in items:
+            is_active = st.session_state.active_tab == item
+            st.button(
+                item,
+                key=f"nav_{item}",
+                use_container_width=True,
+                type="primary" if is_active else "secondary",
+                on_click=switch_page,
+                args=(item,),
+            )
+
+    st.markdown('<div class="ssad-nav-group-label">SYSTEM</div>', unsafe_allow_html=True)
+    is_settings_active = st.session_state.active_tab == "⚙️ Settings"
+    st.button(
+        "⚙️ Settings",
+        key="nav_settings",
+        use_container_width=True,
+        type="primary" if is_settings_active else "secondary",
+        on_click=switch_page,
+        args=("⚙️ Settings",),
+    )
+
+    st.divider()
+    with st.container(key="ssad_footer_metrics"):
+        st.caption("CONNECTION")
+        fc1, fc2 = st.columns(2)
+        fc1.metric("WebSocket", "18ms")
+        fc2.metric("Broker API", "🟢")
+        st.session_state.setdefault("theme_dark", True)
+        st.session_state.setdefault("alerts_on", True)
+        tcol1, tcol2 = st.columns(2)
+        st.session_state.theme_dark = tcol1.toggle("🌙 Dark", value=st.session_state.theme_dark)
+        st.session_state.alerts_on = tcol2.toggle("🔔 Alerts", value=st.session_state.alerts_on)
 
 # --- ASSET UNIVERSE ---
 MARKET_UNIVERSE = {
@@ -333,14 +449,61 @@ global_price = (
     float(global_df["Close"].iloc[-1]) if not global_df.empty else 2468.40
 )
 
-# Top Ticker Bar
-with st.container(border=True):
-    t1, t2, t3, t4, t5 = st.columns(5)
-    t1.metric("🟡 XAU/USD", "$2,468.40", "+0.84%")
-    t2.metric("🪙 BTC/USDT", "$78,820.00", "+2.15%")
-    t3.metric("🇮🇳 NIFTY 50", "24,310.80", "-0.24%")
-    t4.metric("🇺🇸 S&P 500", "5,840.10", "+0.41%")
-    t5.metric("💱 EUR/USD", "1.0825", "-0.08%")
+# Top Ticker Bar — persistent sliding marquee (all 5 assets, seamless loop, pauses on hover)
+st.markdown(
+    """
+    <style>
+    .st-key-ssad_ticker_wrap {
+        position: sticky !important; top: 0 !important; z-index: 99997 !important;
+        margin-bottom: 10px !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+_TICKER_ITEMS = (
+    '<span class="tk-item">🟡 XAU/USD&nbsp;<b>$2,468.40</b>&nbsp;'
+    '<span class="up">+0.84%</span></span>'
+    '<span class="tk-item">🪙 BTC/USDT&nbsp;<b>$78,820.00</b>&nbsp;'
+    '<span class="up">+2.15%</span></span>'
+    '<span class="tk-item">🇮🇳 NIFTY 50&nbsp;<b>24,310.80</b>&nbsp;'
+    '<span class="down">-0.24%</span></span>'
+    '<span class="tk-item">🇺🇸 S&amp;P 500&nbsp;<b>5,840.10</b>&nbsp;'
+    '<span class="up">+0.41%</span></span>'
+    '<span class="tk-item">💱 EUR/USD&nbsp;<b>1.0825</b>&nbsp;'
+    '<span class="down">-0.08%</span></span>'
+)
+_ticker_html = f"""
+<style>
+  html, body {{ margin:0; padding:0; background: transparent; overflow: hidden; }}
+  .tk-outer {{
+    width: 100%; overflow: hidden; white-space: nowrap;
+    background: rgba(14,17,27,0.6); backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
+    padding: 10px 0;
+  }}
+  .tk-track {{
+    display: inline-block; white-space: nowrap;
+    animation: tk-slide 28s linear infinite;
+  }}
+  .tk-outer:hover .tk-track {{ animation-play-state: paused; }}
+  .tk-item {{
+    display: inline-block; color: #e8eaf0; font-family: sans-serif;
+    font-size: 15px; padding: 0 34px; border-right: 1px solid rgba(255,255,255,0.12);
+  }}
+  .up {{ color: #4ade80; font-weight: 600; }}
+  .down {{ color: #f87171; font-weight: 600; }}
+  @keyframes tk-slide {{
+    from {{ transform: translateX(-50%); }}
+    to   {{ transform: translateX(0%); }}
+  }}
+</style>
+<div class="tk-outer">
+  <div class="tk-track">{_TICKER_ITEMS}{_TICKER_ITEMS}</div>
+</div>
+"""
+with st.container(key="ssad_ticker_wrap"):
+    components.html(_ticker_html, height=58)
 
 # ==========================================
 # 🤖 FLOATING TRANSLUCENT AI BOT
@@ -400,8 +563,8 @@ if st.button(fab_label, key="ssad_bot_fab", help="Chat, signals & strategy build
 if st.session_state.bot_open:
     with st.container(key="ssad_bot_panel"):
         st.markdown("##### 🤖 AI Trading Co-Pilot")
-        bot_tab_chat, bot_tab_signals, bot_tab_strat, bot_tab_set = st.tabs(
-            ["💬 Chat", "📡 Signals", "🧠 Strategies", "⚙️"]
+        bot_tab_chat, bot_tab_signals, bot_tab_set = st.tabs(
+            ["💬 Chat", "📡 Signals", "⚙️"]
         )
 
         # ---------------- CHAT TAB (text + voice) ----------------
@@ -424,7 +587,7 @@ if st.session_state.bot_open:
                     .replace("\n", " ")
                     .replace('"', "'")
                 )
-                st.iframe(
+                components.html(
                     f"""
                     <script>
                     try {{
@@ -444,7 +607,7 @@ if st.session_state.bot_open:
                 # Voice input via the browser's built-in Web Speech API (Chrome/Edge).
                 # Recognized speech is written into the text box below and
                 # auto-submitted by simulating a click on the Send button.
-                st.iframe(
+                components.html(
                     """
                     <button id="ssad_mic_btn" style="width:100%;height:38px;border-radius:8px;
                         border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.08);
@@ -543,67 +706,6 @@ if st.session_state.bot_open:
                     st.rerun()
             else:
                 st.info("Not enough data loaded yet for a signal.")
-
-        # ---------------- STRATEGIES / EA BUILDER TAB ----------------
-        with bot_tab_strat:
-            st.caption("Popular templates")
-            for tmpl in POPULAR_STRATEGIES:
-                with st.expander(tmpl["name"]):
-                    st.write(tmpl["description"])
-                    st.caption(f"Rule: {tmpl['entry_rule']}")
-                    st.caption(
-                        f"SL {tmpl['stop_loss_pct']}%  |  TP {tmpl['take_profit_pct']}%"
-                    )
-                    if st.button("Use as my EA", key=f"ssad_use_{tmpl['name']}"):
-                        st.session_state.my_strategies.append(dict(tmpl))
-                        st.rerun()
-
-            st.divider()
-            st.caption("Build your own EA")
-            with st.form("ssad_new_strategy_form", clear_on_submit=True):
-                new_name = st.text_input("Strategy name")
-                new_rule = st.text_area(
-                    "Entry rule (plain language, e.g. 'RSI below 30 and volume surge above 1.5x → BUY')"
-                )
-                new_sl = st.number_input("Stop Loss (%)", value=1.0, step=0.1)
-                new_tp = st.number_input("Take Profit (%)", value=2.0, step=0.1)
-                if st.form_submit_button("Save Strategy"):
-                    if new_name and new_rule:
-                        st.session_state.my_strategies.append(
-                            {
-                                "name": new_name,
-                                "description": "Custom user-defined EA.",
-                                "entry_rule": new_rule,
-                                "stop_loss_pct": new_sl,
-                                "take_profit_pct": new_tp,
-                            }
-                        )
-                        st.rerun()
-
-            if st.session_state.my_strategies:
-                st.divider()
-                st.caption("My saved strategies")
-                for i, strat in enumerate(st.session_state.my_strategies):
-                    with st.expander(f"📌 {strat['name']}"):
-                        st.write(strat["description"])
-                        st.caption(f"Rule: {strat['entry_rule']}")
-                        st.caption(
-                            f"SL {strat['stop_loss_pct']}%  |  TP {strat['take_profit_pct']}%"
-                        )
-                        col_bt, col_del = st.columns(2)
-                        if col_bt.button("Ask Claude to review", key=f"ssad_review_{i}"):
-                            send_chat_message(
-                                "Review this trading strategy and point out strengths, "
-                                "weaknesses, and any risk-management gaps.",
-                                context_summary=(
-                                    f"Strategy '{strat['name']}' — rule: {strat['entry_rule']}, "
-                                    f"SL {strat['stop_loss_pct']}%, TP {strat['take_profit_pct']}%."
-                                ),
-                            )
-                            st.rerun()
-                        if col_del.button("Delete", key=f"ssad_del_{i}"):
-                            st.session_state.my_strategies.pop(i)
-                            st.rerun()
 
         # ---------------- BOT SETTINGS TAB ----------------
         with bot_tab_set:
@@ -770,7 +872,7 @@ elif st.session_state.active_tab == "📈 AI Trade & Charts":
           </script>
         </div>
         """
-        st.iframe(tv_widget_html, height=780)
+        components.html(tv_widget_html, height=780)
 
     with tab_quant:
         active_df = load_ohlcv(inst_cfg["yf"])
