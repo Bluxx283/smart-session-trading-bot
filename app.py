@@ -906,7 +906,7 @@ if st.session_state.bot_open:
         )
 
         # ---------------- CHAT TAB (text + voice) ----------------
-        with bot_tab_chat:
+        with bot_tab:
             for msg in st.session_state.chat_messages[-30:]:
                 with st.chat_message(msg["role"]):
                     st.write(msg["content"])
@@ -2129,5 +2129,3 @@ elif st.session_state.active_tab == "⚙️ Settings":
     st.divider()
     st.markdown("#### 🧩 Platform Modules")
     st.write({"Chart Analysis": "Technical chart + direct execution", "EA Engine": "Builder / Library / Deployment", "Backtesting": "Historical simulation + metrics", "Broker Bridge": st.session_state.broker_name, "Default Execution": st.session_state.broker_api_mode})
-
-
