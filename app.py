@@ -1,4 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timedelta
+import os
+import json
 import re
 import numpy as np
 import pandas as pd
@@ -78,13 +80,15 @@ if "chat_messages" not in st.session_state:
         {
             "role": "assistant",
             "content": (
-                "Hey, I'm your trading co-pilot. Ask me about the market, "
-                "chart signals, or build a strategy in the Strategies tab."
+                "Hi! I'm your trading co-pilot. I can watch signals, check risk, "
+                "explain setups, and help you work through your trading plan."
             ),
         }
     ]
 if "voice_enabled" not in st.session_state:
     st.session_state.voice_enabled = True
+if "voice_name" not in st.session_state:
+    st.session_state.voice_name = "Auto / Best available"
 if "anthropic_api_key" not in st.session_state:
     st.session_state.anthropic_api_key = ""
 if "claude_model" not in st.session_state:
@@ -204,6 +208,148 @@ if "quant_runs" not in st.session_state:
 if "quant_candidate" not in st.session_state:
     st.session_state.quant_candidate = None
 
+# --- PROP-FIRM + PERSISTENT AI MONITOR STATE ---
+PROP_DEFAULTS = {
+    "account_type": "Personal / Demo",
+    "account_size": 100000.0,
+    "profit_target_pct": 10.0,
+    "daily_loss_limit_pct": 5.0,
+    "max_drawdown_pct": 10.0,
+    "min_trading_days": 5,
+    "news_trading": "Allowed",
+    "weekend_holding": "Allowed",
+    "ea_trading": "Allowed",
+    "max_trade_risk_pct": 0.50,
+    "firm_name": "Custom Prop Profile",
+}
+for _k, _v in PROP_DEFAULTS.items():
+    st.session_state.setdefault(f"prop_{_k}", _v)
+
+st.session_state.setdefault("prop_daily_pnl", 0.0)
+st.session_state.setdefault("prop_peak_equity", float(st.session_state.account_balance))
+st.session_state.setdefault("prop_trading_days", 0)
+st.session_state.setdefault("notification_log", [])
+st.session_state.setdefault("telegram_bot_token", "")
+st.session_state.setdefault("telegram_chat_id", "")
+st.session_state.setdefault("discord_webhook", "")
+st.session_state.setdefault("smtp_host", "")
+st.session_state.setdefault("smtp_port", 587)
+st.session_state.setdefault("smtp_user", "")
+st.session_state.setdefault("smtp_password", "")
+st.session_state.setdefault("alert_email", "")
+st.session_state.setdefault("persistent_monitor_enabled", False)
+st.session_state.setdefault("last_signal_snapshot", None)
+st.session_state.setdefault("auto_ea_on_signal", False)
+st.session_state.setdefault("ea_execution_mode", "PAPER")
+st.session_state.setdefault("broker_api_endpoint", "")
+
+def prop_equity():
+    return float(st.session_state.account_balance + st.session_state.prop_daily_pnl)
+
+def prop_drawdown_pct():
+    peak = max(float(st.session_state.prop_peak_equity), 1.0)
+    return max(0.0, (peak - prop_equity()) / peak * 100.0)
+
+def prop_daily_loss_pct():
+    size = max(float(st.session_state.prop_account_size), 1.0)
+    return max(0.0, -float(st.session_state.prop_daily_pnl) / size * 100.0)
+
+def prop_risk_status(risk_pct):
+    if st.session_state.prop_account_type not in {"Prop-Firm", "Evaluation", "Funded Account"}:
+        return True, "Personal/demo mode — prop limits are informational."
+    daily = prop_daily_loss_pct()
+    dd = prop_drawdown_pct()
+    max_risk = float(st.session_state.prop_max_trade_risk_pct)
+    daily_limit = float(st.session_state.prop_daily_loss_limit_pct)
+    dd_limit = float(st.session_state.prop_max_drawdown_pct)
+    if risk_pct > max_risk:
+        return False, f"Requested risk {risk_pct:.2f}% exceeds max trade risk {max_risk:.2f}%."
+    if daily + risk_pct > daily_limit:
+        return False, f"This trade could exceed the daily loss limit ({daily_limit:.2f}%)."
+    if dd + risk_pct > dd_limit:
+        return False, f"This trade could exceed the maximum drawdown limit ({dd_limit:.2f}%)."
+    return True, "Within configured prop-account risk limits."
+
+def make_signal_snapshot(price, df, asset_name="Gold (XAU/USD)"):
+    data = df.copy()
+    if len(data) < 25:
+        return None
+    data = add_indicators(data, 9, 21).dropna()
+    if data.empty:
+        return None
+    last = data.iloc[-1]
+    p = float(price)
+    side = "LONG" if float(last["EMA Fast"]) > float(last["EMA Slow"]) else "SHORT"
+    atr = float((data["High"] - data["Low"]).rolling(14).mean().iloc[-1])
+    atr = max(atr, p * 0.002)
+    entry = p
+    sl = entry - atr * 1.15 if side == "LONG" else entry + atr * 1.15
+    tp1 = entry + (entry - sl) * 1.0 if side == "LONG" else entry - (sl - entry) * 1.0
+    tp2 = entry + (entry - sl) * 2.0 if side == "LONG" else entry - (sl - entry) * 2.0
+    rsi = float(last["RSI"])
+    vol_ma = float(last["Volume MA"]) if pd.notna(last["Volume MA"]) else 0.0
+    vol_ratio = float(last["Volume"] / (vol_ma + 1e-9)) if vol_ma else 1.0
+    trend_strength = abs(float(last["EMA Fast"]) - float(last["EMA Slow"])) / max(p, 1e-9) * 10000
+    confidence = min(95, max(52, 58 + trend_strength * 2 + min(vol_ratio, 2) * 6))
+    risk_ok, risk_reason = prop_risk_status(float(st.session_state.prop_max_trade_risk_pct))
+    return {
+        "asset": asset_name,
+        "side": side,
+        "entry": entry,
+        "sl": sl,
+        "tp1": tp1,
+        "tp2": tp2,
+        "rr": 2.0,
+        "confidence": confidence,
+        "rsi": rsi,
+        "volume_ratio": vol_ratio,
+        "risk_ok": risk_ok,
+        "risk_reason": risk_reason,
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+def append_notification(title, body, level="INFO"):
+    item = {"time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "level": level, "title": title, "body": body}
+    st.session_state.notification_log.insert(0, item)
+    st.session_state.notification_log = st.session_state.notification_log[:50]
+
+def build_signal_message(sig):
+    return (
+        f"{sig['asset']} {sig['side']} SETUP\n"
+        f"Entry: {sig['entry']:.2f}\nSL: {sig['sl']:.2f}\n"
+        f"TP1: {sig['tp1']:.2f}\nTP2: {sig['tp2']:.2f}\n"
+        f"R:R: 1:{sig['rr']:.1f}\nConfidence: {sig['confidence']:.0f}%\n"
+        f"Risk: {st.session_state.prop_max_trade_risk_pct:.2f}%\n"
+        f"Risk check: {'PASS' if sig['risk_ok'] else 'BLOCKED'} — {sig['risk_reason']}"
+    )
+
+def save_monitor_config():
+    cfg = {
+        "enabled": bool(st.session_state.persistent_monitor_enabled),
+        "account_type": st.session_state.prop_account_type,
+        "firm_name": st.session_state.prop_firm_name,
+        "account_size": float(st.session_state.prop_account_size),
+        "daily_loss_limit_pct": float(st.session_state.prop_daily_loss_limit_pct),
+        "max_drawdown_pct": float(st.session_state.prop_max_drawdown_pct),
+        "max_trade_risk_pct": float(st.session_state.prop_max_trade_risk_pct),
+        "assets": ["Gold (XAU/USD)", "Bitcoin (BTC/USDT)", "NIFTY 50 Index"],
+        "interval_seconds": 60,
+        "telegram_bot_token": st.session_state.telegram_bot_token,
+        "telegram_chat_id": st.session_state.telegram_chat_id,
+        "discord_webhook": st.session_state.discord_webhook,
+        "smtp_host": st.session_state.smtp_host,
+        "smtp_port": int(st.session_state.smtp_port),
+        "smtp_user": st.session_state.smtp_user,
+        "smtp_password": st.session_state.smtp_password,
+        "alert_email": st.session_state.alert_email,
+        "auto_ea_on_signal": bool(st.session_state.auto_ea_on_signal),
+        "ea_execution_mode": st.session_state.ea_execution_mode,
+        "broker_api_endpoint": st.session_state.broker_api_endpoint,
+    }
+    path = Path("prop_ai_monitor_config.json")
+    path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    return str(path)
+
 def place_chart_trade(side, lots, asset_name, price):
     st.session_state.positions.insert(
         0,
@@ -311,6 +457,7 @@ NAV_GROUPS = {
     "INTELLIGENCE": [
         "🧩 Strategy Builder",
         "🧪 Quant Lab",
+        "🏦 Prop-Firm Center",
         "📅 Economic Calendar",
     ],
 }
@@ -692,7 +839,7 @@ with st.container(key="ssad_ticker_wrap"):
 st.markdown(
     """
     <style>
-    /* Floating pill-shaped toggle button, bottom-right of the viewport */
+    /* Cute glass floating co-pilot button */
     .st-key-ssad_bot_fab {
         position: fixed !important;
         bottom: 28px !important;
@@ -701,32 +848,36 @@ st.markdown(
         width: auto !important;
     }
     .st-key-ssad_bot_fab button {
-        border-radius: 30px !important;
-        padding: 14px 22px !important;
-        font-size: 17px !important;
-        font-weight: 600 !important;
-        background: rgba(80, 140, 255, 0.22) !important;
-        backdrop-filter: blur(14px) saturate(160%) !important;
-        -webkit-backdrop-filter: blur(14px) saturate(160%) !important;
-        border: 1px solid rgba(140, 180, 255, 0.55) !important;
-        box-shadow: 0 6px 26px rgba(0,0,0,0.5), 0 0 0 4px rgba(80,140,255,0.08) !important;
+        border-radius: 999px !important;
+        padding: 12px 19px !important;
+        font-size: 16px !important;
+        font-weight: 700 !important;
+        background: linear-gradient(135deg, rgba(33,35,57,0.82), rgba(89,64,126,0.66)) !important;
+        backdrop-filter: blur(18px) saturate(170%) !important;
+        -webkit-backdrop-filter: blur(18px) saturate(170%) !important;
+        border: 1px solid rgba(255,255,255,0.22) !important;
+        box-shadow: 0 12px 36px rgba(0,0,0,0.48), 0 0 24px rgba(155,120,255,0.22) !important;
         color: #fff !important;
     }
-    /* Floating translucent chat panel */
+    .st-key-ssad_bot_fab button:hover {
+        transform: translateY(-2px) scale(1.02);
+        border-color: rgba(255,255,255,0.36) !important;
+    }
+    /* Floating translucent co-pilot shell */
     .st-key-ssad_bot_panel {
         position: fixed !important;
         bottom: 104px !important;
         right: 28px !important;
-        width: 400px !important;
-        max-height: 68vh !important;
+        width: 430px !important;
+        max-height: 72vh !important;
         overflow-y: auto !important;
         z-index: 999999 !important;
-        background: rgba(14, 17, 27, 0.55) !important;
+        background: linear-gradient(160deg, rgba(13,16,29,0.76), rgba(48,34,73,0.68)) !important;
         backdrop-filter: blur(20px) saturate(150%) !important;
         -webkit-backdrop-filter: blur(20px) saturate(150%) !important;
         border: 1px solid rgba(255, 255, 255, 0.16) !important;
-        border-radius: 18px !important;
-        box-shadow: 0 10px 40px rgba(0,0,0,0.5) !important;
+        border-radius: 28px !important;
+        box-shadow: 0 18px 55px rgba(0,0,0,0.58), 0 0 35px rgba(135,105,255,0.12) !important;
         padding: 6px 4px !important;
     }
     </style>
@@ -741,9 +892,17 @@ if st.button(fab_label, key="ssad_bot_fab", help="Chat, signals & strategy build
 
 if st.session_state.bot_open:
     with st.container(key="ssad_bot_panel"):
-        st.markdown("##### 🤖 AI Trading Co-Pilot")
-        bot_tab_chat, bot_tab_signals, bot_tab_set = st.tabs(
-            ["💬 Chat", "📡 Signals", "⚙️"]
+        st.markdown("### 🧸✨ Nova — Trading Co-Pilot")
+        st.caption("Your market companion · voice, signals, risk & EA-ready alerts")
+        st.markdown(
+            "<div style='display:flex;gap:7px;flex-wrap:wrap;margin:4px 0 12px 0'>"
+            "<span style='padding:5px 10px;border-radius:999px;background:rgba(80,220,150,.12);border:1px solid rgba(80,220,150,.25);font-size:12px'>● Market Watch</span>"
+            "<span style='padding:5px 10px;border-radius:999px;background:rgba(120,150,255,.12);border:1px solid rgba(120,150,255,.25);font-size:12px'>✦ Signal Engine</span>"
+            "<span style='padding:5px 10px;border-radius:999px;background:rgba(255,190,90,.12);border:1px solid rgba(255,190,90,.25);font-size:12px'>🛡 Risk Guard</span>"
+            "</div>", unsafe_allow_html=True
+        )
+        bot_tab, bot_tab_signals, bot_tab_guardian, bot_tab_set = st.tabs(
+            ["💬 Talk", "📡 Live Signals", "🛡️ Risk Guardian", "⚙️ Settings"]
         )
 
         # ---------------- CHAT TAB (text + voice) ----------------
@@ -766,14 +925,29 @@ if st.session_state.bot_open:
                     .replace("\n", " ")
                     .replace('"', "'")
                 )
+                voice_name = st.session_state.get("voice_name", "Auto / Best available")
+                safe_voice_name = voice_name.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${").replace('"', '\\"')
                 components.html(
                     f"""
                     <script>
                     try {{
-                        const u = new SpeechSynthesisUtterance("{speak_text[:600]}");
-                        u.rate = 1.0;
-                        window.parent.speechSynthesis.cancel();
-                        window.parent.speechSynthesis.speak(u);
+                        const text = "{speak_text[:600]}";
+                        const preferred = "{safe_voice_name}";
+                        const speak = () => {{
+                            const voices = window.parent.speechSynthesis.getVoices();
+                            const preferredVoice = preferred !== "Auto / Best available"
+                                ? voices.find(v => v.name === preferred)
+                                : (voices.find(v => /Samantha|Ava|Jenny|Zira|Google US English/i.test(v.name)) || voices.find(v => /^en[-_]/i.test(v.lang)) || voices[0]);
+                            const u = new SpeechSynthesisUtterance(text);
+                            if (preferredVoice) u.voice = preferredVoice;
+                            u.rate = 0.96;
+                            u.pitch = 1.02;
+                            u.volume = 1.0;
+                            window.parent.speechSynthesis.cancel();
+                            window.parent.speechSynthesis.speak(u);
+                        }};
+                        if (window.parent.speechSynthesis.getVoices().length) speak();
+                        else window.parent.speechSynthesis.onvoiceschanged = speak;
                     }} catch (e) {{}}
                     </script>
                     """,
@@ -877,7 +1051,7 @@ if st.session_state.bot_open:
                     f"Z-Score {z:.2f}, Volume Surge {vol_surge:.2f}x. "
                     f"Rule-based call: {call}."
                 )
-                if st.button("Ask Claude to interpret this signal", key="ssad_sig_ask"):
+                if st.button("Ask Nova to interpret this signal", key="ssad_sig_ask"):
                     send_chat_message(
                         "Interpret the current chart signal and suggest what to watch for next.",
                         context_summary=sig_context,
@@ -885,6 +1059,51 @@ if st.session_state.bot_open:
                     st.rerun()
             else:
                 st.info("Not enough data loaded yet for a signal.")
+
+
+        # ---------------- PROP-FIRM GUARDIAN TAB ----------------
+        with bot_tab_guardian:
+            st.markdown("### 🧸 Risk Guardian")
+            st.caption("Persistent account-aware monitoring. Levels are rule-engine outputs, not guarantees.")
+            g1, g2 = st.columns(2)
+            with g1:
+                st.metric("Account Mode", st.session_state.prop_account_type)
+                st.metric("Daily Loss", f"{prop_daily_loss_pct():.2f}% / {st.session_state.prop_daily_loss_limit_pct:.2f}%")
+            with g2:
+                st.metric("Drawdown", f"{prop_drawdown_pct():.2f}% / {st.session_state.prop_max_drawdown_pct:.2f}%")
+                st.metric("Max Trade Risk", f"{st.session_state.prop_max_trade_risk_pct:.2f}%")
+
+            if global_df is not None and len(global_df) >= 25:
+                guardian_sig = make_signal_snapshot(global_price, global_df, "Gold (XAU/USD)")
+                if guardian_sig:
+                    badge = "🟢 READY" if guardian_sig["risk_ok"] else "🔴 BLOCKED"
+                    st.markdown(f"#### {badge} {guardian_sig['side']} setup")
+                    a, b, c = st.columns(3)
+                    a.metric("Entry", f"{guardian_sig['entry']:.2f}")
+                    b.metric("Stop Loss", f"{guardian_sig['sl']:.2f}")
+                    c.metric("TP1", f"{guardian_sig['tp1']:.2f}")
+                    st.metric("TP2", f"{guardian_sig['tp2']:.2f}")
+                    st.caption(
+                        f"Confidence {guardian_sig['confidence']:.0f}% · "
+                        f"RSI {guardian_sig['rsi']:.1f} · "
+                        f"Volume {guardian_sig['volume_ratio']:.2f}x"
+                    )
+                    if guardian_sig["risk_ok"]:
+                        st.success(guardian_sig["risk_reason"])
+                    else:
+                        st.error(guardian_sig["risk_reason"])
+                    if st.button("🔔 Create Alert", key="guardian_alert"):
+                        st.session_state.last_signal_snapshot = guardian_sig
+                        append_notification(
+                            f"{guardian_sig['asset']} {guardian_sig['side']} signal",
+                            build_signal_message(guardian_sig),
+                            "SIGNAL",
+                        )
+                        st.success("Signal added to the in-app notification queue.")
+                else:
+                    st.info("Waiting for enough market data.")
+            else:
+                st.info("Market feed is still loading.")
 
         # ---------------- BOT SETTINGS TAB ----------------
         with bot_tab_set:
@@ -894,15 +1113,65 @@ if st.session_state.bot_open:
                 type="password",
             )
             st.session_state.claude_model = st.text_input(
-                "Claude model", value=st.session_state.claude_model
+                "AI model (Anthropic/Claude backend)", value=st.session_state.claude_model
             )
             st.session_state.voice_enabled = st.checkbox(
-                "Speak replies out loud", value=st.session_state.voice_enabled
+                "🔊 Speak replies out loud", value=st.session_state.voice_enabled
             )
+            voice_options = ["Auto / Best available"]
+            voice_options += [
+                "Samantha", "Ava", "Jenny", "Microsoft Zira", "Google US English"
+            ]
+            current_voice = st.session_state.get("voice_name", "Auto / Best available")
+            selected_voice = st.selectbox(
+                "Co-Pilot voice", voice_options,
+                index=voice_options.index(current_voice) if current_voice in voice_options else 0,
+                help="Uses the voices installed in your browser/operating system. Exact availability varies by device."
+            )
+            st.session_state.voice_name = selected_voice
             st.caption(
                 "Voice input/output uses your browser's built-in speech engine "
                 "(Chrome/Edge work best) — no extra key needed for that part."
             )
+
+            st.divider()
+            st.markdown("#### 🔔 Persistent Alerts")
+            st.session_state.persistent_monitor_enabled = st.toggle(
+                "Enable background monitor configuration",
+                value=st.session_state.persistent_monitor_enabled,
+            )
+            st.session_state.telegram_bot_token = st.text_input(
+                "Telegram Bot Token", value=st.session_state.telegram_bot_token, type="password"
+            )
+            st.session_state.telegram_chat_id = st.text_input(
+                "Telegram Chat ID", value=st.session_state.telegram_chat_id
+            )
+            st.session_state.discord_webhook = st.text_input(
+                "Discord Webhook", value=st.session_state.discord_webhook, type="password"
+            )
+            st.session_state.alert_email = st.text_input(
+                "Alert Email", value=st.session_state.alert_email
+            )
+            st.markdown("#### 🤖 EA Auto-Execution")
+            st.session_state.auto_ea_on_signal = st.toggle(
+                "Automatically let the EA act on approved signals",
+                value=st.session_state.auto_ea_on_signal,
+            )
+            st.session_state.ea_execution_mode = st.selectbox(
+                "EA Execution Mode", ["PAPER", "LIVE"],
+                index=0 if st.session_state.ea_execution_mode == "PAPER" else 1,
+            )
+            st.session_state.broker_api_endpoint = st.text_input(
+                "Broker execution webhook (LIVE only)",
+                value=st.session_state.broker_api_endpoint,
+                placeholder="https://your-broker-bridge.example/order",
+            )
+            st.caption("PAPER records simulated EA trades. LIVE sends an authenticated order payload to your configured broker/bridge endpoint.")
+            if st.button("💾 Save Persistent Monitor Config", key="save_monitor_cfg"):
+                cfg_path = save_monitor_config()
+                st.success(f"Saved monitor configuration to {cfg_path}.")
+                st.caption("Run the separate monitor service to continue scanning after this web app is closed.")
+
 
 # --- DASHBOARD VISUAL HELPERS ---
 def sparkline_svg(points, stroke='#68a8ff', fill='rgba(104,168,255,.10)'):
@@ -1664,8 +1933,122 @@ elif st.session_state.active_tab == "🤖 EA / Expert Advisors":
     })
 
 
+
 # ==========================================
-# 📅 VIEW 7: ECONOMIC CALENDAR
+# 🏦 VIEW 7: PROP-FIRM CENTER
+# ==========================================
+elif st.session_state.active_tab == "🏦 Prop-Firm Center":
+    st.title("🏦 Prop-Firm Risk Center")
+    st.caption("Configure account rules, monitor drawdown, and gate signals before execution.")
+
+    top1, top2, top3 = st.columns([1.3, 1.3, 1])
+    with top1:
+        st.session_state.prop_account_type = st.selectbox(
+            "Account Type",
+            ["Personal / Demo", "Prop-Firm", "Evaluation", "Funded Account"],
+            index=["Personal / Demo", "Prop-Firm", "Evaluation", "Funded Account"].index(st.session_state.prop_account_type),
+        )
+    with top2:
+        st.session_state.prop_firm_name = st.text_input("Profile / Firm Name", st.session_state.prop_firm_name)
+    with top3:
+        st.session_state.prop_account_size = st.number_input(
+            "Account Size", min_value=1000.0, value=float(st.session_state.prop_account_size), step=1000.0
+        )
+
+    st.markdown("### 📐 Rule Profile")
+    r1, r2, r3, r4 = st.columns(4)
+    with r1:
+        st.session_state.prop_profit_target_pct = st.number_input(
+            "Profit Target %", 0.0, 100.0, float(st.session_state.prop_profit_target_pct), 0.25
+        )
+    with r2:
+        st.session_state.prop_daily_loss_limit_pct = st.number_input(
+            "Daily Loss Limit %", 0.1, 50.0, float(st.session_state.prop_daily_loss_limit_pct), 0.25
+        )
+    with r3:
+        st.session_state.prop_max_drawdown_pct = st.number_input(
+            "Maximum Drawdown %", 0.1, 50.0, float(st.session_state.prop_max_drawdown_pct), 0.25
+        )
+    with r4:
+        st.session_state.prop_max_trade_risk_pct = st.number_input(
+            "Max Risk / Trade %", 0.05, 10.0, float(st.session_state.prop_max_trade_risk_pct), 0.05
+        )
+
+    r5, r6, r7 = st.columns(3)
+    with r5:
+        st.session_state.prop_min_trading_days = st.number_input(
+            "Minimum Trading Days", 0, 100, int(st.session_state.prop_min_trading_days)
+        )
+    with r6:
+        st.session_state.prop_news_trading = st.selectbox("News Trading", ["Allowed", "Restricted"], index=["Allowed", "Restricted"].index(st.session_state.prop_news_trading))
+    with r7:
+        st.session_state.prop_ea_trading = st.selectbox("EA Trading", ["Allowed", "Restricted"], index=["Allowed", "Restricted"].index(st.session_state.prop_ea_trading))
+
+    st.divider()
+    st.markdown("### 🛡️ Live Account Health")
+    h1, h2, h3, h4 = st.columns(4)
+    equity = prop_equity()
+    peak = max(st.session_state.prop_peak_equity, equity)
+    st.session_state.prop_peak_equity = peak
+    profit_pct = (equity - st.session_state.prop_account_size) / max(st.session_state.prop_account_size, 1) * 100
+    h1.metric("Equity", f"${equity:,.2f}")
+    h2.metric("Profit / Loss", f"{profit_pct:+.2f}%")
+    h3.metric("Daily Loss", f"{prop_daily_loss_pct():.2f}%")
+    h4.metric("Drawdown", f"{prop_drawdown_pct():.2f}%")
+
+    daily_remaining = max(0.0, st.session_state.prop_daily_loss_limit_pct - prop_daily_loss_pct())
+    dd_remaining = max(0.0, st.session_state.prop_max_drawdown_pct - prop_drawdown_pct())
+    st.progress(min(prop_daily_loss_pct() / max(st.session_state.prop_daily_loss_limit_pct, 0.01), 1.0), text=f"Daily-loss usage · {prop_daily_loss_pct():.2f}% / {st.session_state.prop_daily_loss_limit_pct:.2f}%")
+    st.progress(min(prop_drawdown_pct() / max(st.session_state.prop_max_drawdown_pct, 0.01), 1.0), text=f"Drawdown usage · {prop_drawdown_pct():.2f}% / {st.session_state.prop_max_drawdown_pct:.2f}%")
+
+    st.info(
+        f"Remaining daily-loss buffer: {daily_remaining:.2f}% · "
+        f"Remaining drawdown buffer: {dd_remaining:.2f}%"
+    )
+
+    st.markdown("### 🟢 Signal Gate")
+    if global_df is not None and len(global_df) >= 25:
+        psig = make_signal_snapshot(global_price, global_df, "Gold (XAU/USD)")
+        if psig:
+            approved, reason = prop_risk_status(float(st.session_state.prop_max_trade_risk_pct))
+            status = "APPROVED" if approved else "BLOCKED"
+            st.markdown(f"#### {'🟢' if approved else '🔴'} {status}")
+            s1, s2, s3, s4 = st.columns(4)
+            s1.metric("Entry", f"{psig['entry']:.2f}")
+            s2.metric("SL", f"{psig['sl']:.2f}")
+            s3.metric("TP1", f"{psig['tp1']:.2f}")
+            s4.metric("TP2", f"{psig['tp2']:.2f}")
+            st.write(f"**Reason:** {reason}")
+            if approved and st.button("📡 Send Signal Alert", key="prop_send_signal"):
+                append_notification(
+                    f"{psig['asset']} {psig['side']} signal",
+                    build_signal_message(psig),
+                    "SIGNAL",
+                )
+                st.success("Signal queued in the notification center.")
+    else:
+        st.warning("Market data is not ready for a signal gate yet.")
+
+    st.divider()
+    st.markdown("### 🔔 Notification Center")
+    if st.session_state.notification_log:
+        st.dataframe(pd.DataFrame(st.session_state.notification_log), use_container_width=True, hide_index=True)
+    else:
+        st.caption("No alerts yet.")
+
+    st.markdown("### 🌙 Background Monitoring")
+    st.write(
+        "The Streamlit page can display alerts, but monitoring after the browser/app is closed "
+        "requires the included persistent monitor service."
+    )
+    if st.button("💾 Write Monitor Configuration", key="prop_write_cfg"):
+        cfg_path = save_monitor_config()
+        st.success(f"Configuration saved: {cfg_path}")
+        st.caption("Start prop_ai_monitor_service.py separately on a machine/server that remains online.")
+
+
+# ==========================================
+# 📅 VIEW 8: ECONOMIC CALENDAR
 # ==========================================
 elif st.session_state.active_tab == "📅 Economic Calendar":
     st.title("📅 Forex Factory-Style Economic Calendar")
@@ -1735,7 +2118,7 @@ elif st.session_state.active_tab == "📅 Economic Calendar":
 
 
 # ==========================================
-# ⚙️ VIEW 8: SETTINGS
+# ⚙️ VIEW 9: SETTINGS
 # ==========================================
 elif st.session_state.active_tab == "⚙️ Settings":
     st.title("⚙️ Smart Session Anomaly Detector | Settings")
@@ -1746,3 +2129,5 @@ elif st.session_state.active_tab == "⚙️ Settings":
     st.divider()
     st.markdown("#### 🧩 Platform Modules")
     st.write({"Chart Analysis": "Technical chart + direct execution", "EA Engine": "Builder / Library / Deployment", "Backtesting": "Historical simulation + metrics", "Broker Bridge": st.session_state.broker_name, "Default Execution": st.session_state.broker_api_mode})
+
+
