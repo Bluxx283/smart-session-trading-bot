@@ -19,29 +19,18 @@ st.set_page_config(
 )
 
 # --- GLOBAL BACKGROUND + HEADER STYLING ---
-# NOTE: rather than an external image URL (which can 404/rate-limit and break
-# the look of the app), the "background image" is a generated CSS pattern —
-# a faint chart-grid + soft color blooms — layered under a dark overlay for
-# contrast. Swap in a real photo via `background-image: url('...')` if you
-# have one you'd like to use instead.
 st.markdown(
     """
     <style>
     .stApp {
         background:
-            linear-gradient(rgba(5,7,12,0.90), rgba(5,7,12,0.95)),
-            linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px),
-            linear-gradient(0deg, rgba(255,255,255,0.035) 1px, transparent 1px),
+            linear-gradient(rgba(6,8,14,0.92), rgba(6,8,14,0.95)),
             repeating-linear-gradient(135deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 2px, transparent 2px, transparent 28px),
-            radial-gradient(circle at 15% 10%, rgba(80,140,255,0.12), transparent 45%),
-            radial-gradient(circle at 85% 90%, rgba(255,80,140,0.09), transparent 45%),
-            radial-gradient(circle at 50% 40%, rgba(0,255,180,0.05), transparent 60%),
+            radial-gradient(circle at 15% 10%, rgba(80,140,255,0.10), transparent 40%),
+            radial-gradient(circle at 85% 90%, rgba(255,80,140,0.08), transparent 40%),
             #05070c;
-        background-size: auto, 46px 46px, 46px 46px, auto, auto, auto, auto, auto;
         background-attachment: fixed;
     }
-
-    /* Dynamic page header used across every view */
     .ssad-page-header {
         font-size: 1.55rem;
         font-weight: 700;
@@ -51,11 +40,6 @@ st.markdown(
         margin-bottom: 14px;
     }
     .ssad-page-header span { color: rgba(255,255,255,0.55); font-weight: 500; }
-
-    /* Room at the top of the main content so the fixed ticker never overlaps it */
-    section.main > div.block-container {
-        padding-top: 4.4rem !important;
-    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -92,7 +76,7 @@ if "chat_messages" not in st.session_state:
             "role": "assistant",
             "content": (
                 "Hey, I'm your trading co-pilot. Ask me about the market, "
-                "chart signals, or build a strategy in the Strategy Builder tab."
+                "chart signals, or build a strategy in the Strategies tab."
             ),
         }
     ]
@@ -465,74 +449,61 @@ global_price = (
     float(global_df["Close"].iloc[-1]) if not global_df.empty else 2468.40
 )
 
-# ==========================================
-# 🎫 TOP TICKER BAR — persistent, fixed-position, CSS-only marquee
-#
-# Rendered with st.markdown (NOT components.html) so it lives directly in
-# the app's own DOM rather than inside a throwaway iframe. That means every
-# Streamlit rerun (nav clicks, the 20s auto-refresh, any widget interaction)
-# re-emits the *same* fixed-position HTML/CSS instead of tearing down and
-# reloading an iframe — so the bar stays put and the marquee keeps sliding
-# smoothly no matter which page or quick action is active. All 5 assets are
-# duplicated back-to-back in the track so the loop has no blank gap, and the
-# 50%-travel keyframe means the seam is invisible.
-# ==========================================
-_TICKER_ITEMS = (
-    '<span class="ssad-tk-item">🟡 XAU/USD&nbsp;<b>$2,468.40</b>&nbsp;'
-    '<span class="ssad-up">+0.84%</span></span>'
-    '<span class="ssad-tk-item">🪙 BTC/USDT&nbsp;<b>$78,820.00</b>&nbsp;'
-    '<span class="ssad-up">+2.15%</span></span>'
-    '<span class="ssad-tk-item">🇮🇳 NIFTY 50&nbsp;<b>24,310.80</b>&nbsp;'
-    '<span class="ssad-down">-0.24%</span></span>'
-    '<span class="ssad-tk-item">🇺🇸 S&amp;P 500&nbsp;<b>5,840.10</b>&nbsp;'
-    '<span class="ssad-up">+0.41%</span></span>'
-    '<span class="ssad-tk-item">💱 EUR/USD&nbsp;<b>1.0825</b>&nbsp;'
-    '<span class="ssad-down">-0.08%</span></span>'
-)
-
+# Top Ticker Bar — persistent sliding marquee (all 5 assets, seamless loop, pauses on hover)
 st.markdown(
-    f"""
+    """
     <style>
-    .ssad-ticker-fixed {{
-        position: fixed;
-        top: 0; left: 0; right: 0;
-        z-index: 999998;
-        background: rgba(14,17,27,0.72);
-        backdrop-filter: blur(10px) saturate(150%);
-        -webkit-backdrop-filter: blur(10px) saturate(150%);
-        border-bottom: 1px solid rgba(255,255,255,0.10);
-        overflow: hidden;
-        white-space: nowrap;
-        padding: 10px 0;
-    }}
-    .ssad-ticker-fixed:hover .ssad-ticker-track {{
-        animation-play-state: paused;
-    }}
-    .ssad-ticker-track {{
-        display: inline-block;
-        white-space: nowrap;
-        /* left-to-right, continuous, seamless: the track holds two copies of
-           the item list, so travelling exactly 50% of its own width lands
-           back on an identical frame and the loop point is invisible */
-        animation: ssad-ticker-slide 30s linear infinite;
-    }}
-    @keyframes ssad-ticker-slide {{
-        from {{ transform: translateX(0%); }}
-        to   {{ transform: translateX(50%); }}
-    }}
-    .ssad-tk-item {{
-        display: inline-block; color: #e8eaf0; font-family: sans-serif;
-        font-size: 14px; padding: 0 34px; border-right: 1px solid rgba(255,255,255,0.12);
-    }}
-    .ssad-up {{ color: #4ade80; font-weight: 600; }}
-    .ssad-down {{ color: #f87171; font-weight: 600; }}
+    .st-key-ssad_ticker_wrap {
+        position: sticky !important; top: 0 !important; z-index: 99997 !important;
+        margin-bottom: 10px !important;
+    }
     </style>
-    <div class="ssad-ticker-fixed">
-        <div class="ssad-ticker-track">{_TICKER_ITEMS}{_TICKER_ITEMS}</div>
-    </div>
     """,
     unsafe_allow_html=True,
 )
+_TICKER_ITEMS = (
+    '<span class="tk-item">🟡 XAU/USD&nbsp;<b>$2,468.40</b>&nbsp;'
+    '<span class="up">+0.84%</span></span>'
+    '<span class="tk-item">🪙 BTC/USDT&nbsp;<b>$78,820.00</b>&nbsp;'
+    '<span class="up">+2.15%</span></span>'
+    '<span class="tk-item">🇮🇳 NIFTY 50&nbsp;<b>24,310.80</b>&nbsp;'
+    '<span class="down">-0.24%</span></span>'
+    '<span class="tk-item">🇺🇸 S&amp;P 500&nbsp;<b>5,840.10</b>&nbsp;'
+    '<span class="up">+0.41%</span></span>'
+    '<span class="tk-item">💱 EUR/USD&nbsp;<b>1.0825</b>&nbsp;'
+    '<span class="down">-0.08%</span></span>'
+)
+_ticker_html = f"""
+<style>
+  html, body {{ margin:0; padding:0; background: transparent; overflow: hidden; }}
+  .tk-outer {{
+    width: 100%; overflow: hidden; white-space: nowrap;
+    background: rgba(14,17,27,0.6); backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
+    padding: 10px 0;
+  }}
+  .tk-track {{
+    display: inline-block; white-space: nowrap;
+    animation: tk-slide 28s linear infinite;
+  }}
+  .tk-outer:hover .tk-track {{ animation-play-state: paused; }}
+  .tk-item {{
+    display: inline-block; color: #e8eaf0; font-family: sans-serif;
+    font-size: 15px; padding: 0 34px; border-right: 1px solid rgba(255,255,255,0.12);
+  }}
+  .up {{ color: #4ade80; font-weight: 600; }}
+  .down {{ color: #f87171; font-weight: 600; }}
+  @keyframes tk-slide {{
+    from {{ transform: translateX(-50%); }}
+    to   {{ transform: translateX(0%); }}
+  }}
+</style>
+<div class="tk-outer">
+  <div class="tk-track">{_TICKER_ITEMS}{_TICKER_ITEMS}</div>
+</div>
+"""
+with st.container(key="ssad_ticker_wrap"):
+    components.html(_ticker_html, height=58)
 
 # ==========================================
 # 🤖 FLOATING TRANSLUCENT AI BOT
@@ -758,7 +729,7 @@ if st.session_state.bot_open:
 # 📊 VIEW 1: DASHBOARD
 # ==========================================
 if st.session_state.active_tab == "📊 Dashboard":
-    page_header("Terminal Core")
+    st.title("Smart Session Anomaly Detector")
     st.caption("Multi-Asset Quantitative Intelligence & Risk Framework")
 
     m1, m2, m3, m4 = st.columns(4)
@@ -771,114 +742,68 @@ if st.session_state.active_tab == "📊 Dashboard":
     )
 
     st.markdown("### Quick Actions")
+    q1, q2, q3, q4, q5 = st.columns(5)
 
-    # Uniform glassmorphism quick-action cards — targeted via the
-    # `st-key-qa_card_*` prefix so a single rule styles all of them.
-    st.markdown(
-        """
-        <style>
-        [class*="st-key-qa_card_"] {
-            background: rgba(16, 20, 30, 0.55) !important;
-            backdrop-filter: blur(16px) saturate(160%) !important;
-            -webkit-backdrop-filter: blur(16px) saturate(160%) !important;
-            border: 1px solid rgba(255,255,255,0.10) !important;
-            border-radius: 16px !important;
-            padding: 6px !important;
-            transition: transform 0.15s ease, border-color 0.15s ease;
-            height: 100%;
-        }
-        [class*="st-key-qa_card_"]:hover {
-            transform: translateY(-3px);
-            border-color: rgba(140,180,255,0.45) !important;
-        }
-        .ssad-qa-icon { font-size: 1.6rem; margin-bottom: 2px; }
-        .ssad-qa-title { font-weight: 700; font-size: 1.0rem; margin-bottom: 4px; }
-        .ssad-qa-desc { font-size: 0.80rem; color: rgba(255,255,255,0.62); line-height: 1.35; min-height: 64px; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    with q1:
+        with st.container(border=True):
+            st.markdown("#### 📈 AI Live Charts")
+            st.caption("Live TradingView viewport with anomaly detection markers.")
+            st.button(
+                "Open Charts →",
+                key="btn_qa_charts",
+                use_container_width=True,
+                on_click=switch_page,
+                args=("📈 AI Trade & Charts",),
+            )
 
-    QUICK_ACTIONS = [
-        {
-            "icon": "📈",
-            "title": "AI Live Charts",
-            "desc": "Institutional-grade TradingView viewport fused with the "
-            "Isolation Forest anomaly engine — flags liquidity sweeps and "
-            "statistical outliers as they form.",
-            "button": "Open Charts →",
-            "target": "📈 AI Trade & Charts",
-        },
-        {
-            "icon": "🧮",
-            "title": "Pip & Risk Engine",
-            "desc": "Precision position-sizing desk. Model exact lot size, "
-            "stop distance and risk-to-reward before routing a single order.",
-            "button": "Open Calculator →",
-            "target": "🧮 Pip & Risk Calculator",
-        },
-        {
-            "icon": "⚡",
-            "title": "Broker Gateway",
-            "desc": "Bridge to MT5, Zerodha Kite, Binance Futures or "
-            "Interactive Brokers. Route mock or live execution with full "
-            "fill history.",
-            "button": "Open Gateway →",
-            "target": "⚡ Broker Gateway",
-        },
-        {
-            "icon": "🧩",
-            "title": "Strategy Builder",
-            "desc": "Construct rule-based setups from scratch, or clone "
-            "institutional playbooks — Liquidity Sweep, Order Block "
-            "Mitigation, Session Breakout — straight into your desk.",
-            "button": "Open Builder →",
-            "target": "🧩 Strategy Builder",
-        },
-        {
-            "icon": "📅",
-            "title": "Economic Calendar",
-            "desc": "Track high-impact CPI, NFP and central bank rate "
-            "decisions before volatility hits your open positions.",
-            "button": "View Calendar →",
-            "target": "📅 Economic Calendar",
-        },
-        {
-            "icon": "🤖",
-            "title": "AI Co-Pilot",
-            "desc": "Voice- and text-enabled trading assistant with live "
-            "signal interpretation and access to your saved strategies.",
-            "button": "Open Co-Pilot →",
-            "target": None,  # opens the floating bot instead of switching pages
-        },
-    ]
+    with q2:
+        with st.container(border=True):
+            st.markdown("#### 🧮 Pip & Risk Engine")
+            st.caption("Calculate exact position sizing and risk-to-reward ratios.")
+            st.button(
+                "Open Calculator →",
+                key="btn_qa_calc",
+                use_container_width=True,
+                on_click=switch_page,
+                args=("🧮 Pip & Risk Calculator",),
+            )
 
-    for row_start in (0, 3):
-        cols = st.columns(3)
-        for col, action in zip(cols, QUICK_ACTIONS[row_start:row_start + 3]):
-            with col:
-                with st.container(key=f"qa_card_{action['title']}", border=True):
-                    st.markdown(
-                        f'<div class="ssad-qa-icon">{action["icon"]}</div>'
-                        f'<div class="ssad-qa-title">{action["title"]}</div>'
-                        f'<div class="ssad-qa-desc">{action["desc"]}</div>',
-                        unsafe_allow_html=True,
-                    )
-                    if action["target"] is not None:
-                        st.button(
-                            action["button"],
-                            key=f"btn_qa_{action['title']}",
-                            use_container_width=True,
-                            on_click=switch_page,
-                            args=(action["target"],),
-                        )
-                    else:
-                        st.button(
-                            action["button"],
-                            key=f"btn_qa_{action['title']}",
-                            use_container_width=True,
-                            on_click=open_bot,
-                        )
+    with q3:
+        with st.container(border=True):
+            st.markdown("#### ⚡ Broker Gateway")
+            st.caption(
+                "Route mock or live WebSockets trades directly to MT5 or Binance."
+            )
+            st.button(
+                "Open Gateway →",
+                key="btn_qa_broker",
+                use_container_width=True,
+                on_click=switch_page,
+                args=("⚡ Broker Gateway",),
+            )
+
+    with q4:
+        with st.container(border=True):
+            st.markdown("#### 📅 Economic Calendar")
+            st.caption("Monitor high-impact CPI, NFP, and rate decision events.")
+            st.button(
+                "View Calendar →",
+                key="btn_qa_cal",
+                use_container_width=True,
+                on_click=switch_page,
+                args=("📅 Economic Calendar",),
+            )
+
+    with q5:
+        with st.container(border=True):
+            st.markdown("#### 🤖 AI Co-Pilot")
+            st.caption("Chat, voice, live signals & your saved strategies/EAs.")
+            st.button(
+                "Open Co-Pilot →",
+                key="btn_qa_bot",
+                use_container_width=True,
+                on_click=open_bot,
+            )
 
     st.divider()
     st.markdown("### Recent Trade Activity")
@@ -896,7 +821,7 @@ if st.session_state.active_tab == "📊 Dashboard":
 # 📈 VIEW 2: AI TRADE & CHARTS
 # ==========================================
 elif st.session_state.active_tab == "📈 AI Trade & Charts":
-    page_header("Live Charts & ML Anomaly Engine")
+    st.title("📈 Smart Session Anomaly Detector | Charts")
 
     col_s1, col_s2, col_s3 = st.columns([1.5, 1.5, 1])
     with col_s1:
@@ -1073,7 +998,7 @@ elif st.session_state.active_tab == "📈 AI Trade & Charts":
 # 🧮 VIEW 3: PIP & RISK CALCULATOR
 # ==========================================
 elif st.session_state.active_tab == "🧮 Pip & Risk Calculator":
-    page_header("Pip & Sizing Desk")
+    st.title("🧮 Smart Session Anomaly Detector | Pip & Sizing Desk")
 
     calc_asset = st.selectbox(
         "Tradable Instrument",
@@ -1115,7 +1040,7 @@ elif st.session_state.active_tab == "🧮 Pip & Risk Calculator":
 # ⚡ VIEW 4: BROKER GATEWAY
 # ==========================================
 elif st.session_state.active_tab == "⚡ Broker Gateway":
-    page_header("Execution Bridge")
+    st.title("⚡ Smart Session Anomaly Detector | Execution Bridge")
 
     col_g1, col_g2 = st.columns([1, 1.5])
     with col_g1:
@@ -1195,106 +1120,10 @@ elif st.session_state.active_tab == "⚡ Broker Gateway":
             st.caption("No open market positions.")
 
 # ==========================================
-# 🧩 VIEW 5: STRATEGY BUILDER
-# ==========================================
-elif st.session_state.active_tab == "🧩 Strategy Builder":
-    page_header("Strategy Builder")
-    st.caption("Clone an institutional playbook or construct your own rule-based setup.")
-
-    tab_playbooks, tab_custom, tab_mine = st.tabs(
-        ["📚 Institutional Playbooks", "🛠️ Build Custom", "⭐ My Strategies"]
-    )
-
-    # ---------------- INSTITUTIONAL PLAYBOOKS ----------------
-    with tab_playbooks:
-        pb_cols = st.columns(3)
-        for pb_col, strat in zip(pb_cols, POPULAR_STRATEGIES):
-            with pb_col:
-                with st.container(border=True):
-                    st.markdown(f"#### {strat['name']}")
-                    st.caption(strat["description"])
-                    st.markdown(f"**Entry rule:** {strat['entry_rule']}")
-                    m1, m2 = st.columns(2)
-                    m1.metric("Stop Loss", f"{strat['stop_loss_pct']}%")
-                    m2.metric("Take Profit", f"{strat['take_profit_pct']}%")
-                    already_added = any(
-                        s["name"] == strat["name"] for s in st.session_state.my_strategies
-                    )
-                    if already_added:
-                        st.button(
-                            "✅ Added",
-                            key=f"clone_{strat['name']}",
-                            use_container_width=True,
-                            disabled=True,
-                        )
-                    else:
-                        if st.button(
-                            "＋ Clone to My Strategies",
-                            key=f"clone_{strat['name']}",
-                            use_container_width=True,
-                        ):
-                            st.session_state.my_strategies.append(dict(strat))
-                            st.rerun()
-
-    # ---------------- CUSTOM STRATEGY BUILDER ----------------
-    with tab_custom:
-        with st.form("ssad_custom_strategy_form", clear_on_submit=True):
-            cs_name = st.text_input("Strategy Name", placeholder="e.g. NY Open Fade")
-            cs_desc = st.text_area(
-                "Description",
-                placeholder="What market behavior is this strategy trying to capture?",
-            )
-            cs_entry = st.text_input(
-                "Entry Rule",
-                placeholder="e.g. Price closes above 20-EMA with RSI > 55 → enter long",
-            )
-            cs_col1, cs_col2 = st.columns(2)
-            cs_sl = cs_col1.slider("Stop Loss (%)", 0.1, 5.0, 1.0, 0.1)
-            cs_tp = cs_col2.slider("Take Profit (%)", 0.1, 10.0, 2.0, 0.1)
-            cs_submit = st.form_submit_button("＋ Add Strategy", use_container_width=True)
-
-        if cs_submit:
-            if cs_name.strip() and cs_entry.strip():
-                st.session_state.my_strategies.append(
-                    {
-                        "name": cs_name.strip(),
-                        "description": cs_desc.strip() or "No description provided.",
-                        "entry_rule": cs_entry.strip(),
-                        "stop_loss_pct": cs_sl,
-                        "take_profit_pct": cs_tp,
-                    }
-                )
-                st.success(f"'{cs_name.strip()}' added to My Strategies.")
-                st.rerun()
-            else:
-                st.warning("Give the strategy a name and an entry rule before saving.")
-
-    # ---------------- MY STRATEGIES ----------------
-    with tab_mine:
-        if len(st.session_state.my_strategies) == 0:
-            st.info(
-                "No strategies saved yet. Clone a playbook or build a custom "
-                "one to see it here."
-            )
-        else:
-            for idx, strat in enumerate(st.session_state.my_strategies):
-                with st.container(border=True):
-                    hc1, hc2 = st.columns([5, 1])
-                    hc1.markdown(f"#### {strat['name']}")
-                    if hc2.button("🗑️", key=f"del_strat_{idx}", use_container_width=True):
-                        st.session_state.my_strategies.pop(idx)
-                        st.rerun()
-                    st.caption(strat["description"])
-                    st.markdown(f"**Entry rule:** {strat['entry_rule']}")
-                    m1, m2 = st.columns(2)
-                    m1.metric("Stop Loss", f"{strat['stop_loss_pct']}%")
-                    m2.metric("Take Profit", f"{strat['take_profit_pct']}%")
-
-# ==========================================
-# 📅 VIEW 6: ECONOMIC CALENDAR
+# 📅 VIEW 5: ECONOMIC CALENDAR
 # ==========================================
 elif st.session_state.active_tab == "📅 Economic Calendar":
-    page_header("Economic Calendar")
+    st.title("📅 High-Impact Economic Calendar")
     cal_data = pd.DataFrame(
         [
             {
@@ -1334,10 +1163,10 @@ elif st.session_state.active_tab == "📅 Economic Calendar":
     st.dataframe(cal_data, use_container_width=True)
 
 # ==========================================
-# ⚙️ VIEW 7: SETTINGS
+# ⚙️ VIEW 6: SETTINGS
 # ==========================================
 elif st.session_state.active_tab == "⚙️ Settings":
-    page_header("Settings")
+    st.title("⚙️ Smart Session Anomaly Detector | Settings")
     st.write("Platform: Smart Session Anomaly Detector Suite")
     st.write("Architecture: Python Quant Pipeline + Isolation Forest ML")
     st.write("Data Stream Latency: 20 Seconds Auto-Sync")
