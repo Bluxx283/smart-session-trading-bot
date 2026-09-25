@@ -23,24 +23,26 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    .stApp {
-        background:
-            linear-gradient(rgba(6,8,14,0.92), rgba(6,8,14,0.95)),
-            repeating-linear-gradient(135deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 2px, transparent 2px, transparent 28px),
-            radial-gradient(circle at 15% 10%, rgba(80,140,255,0.10), transparent 40%),
-            radial-gradient(circle at 85% 90%, rgba(255,80,140,0.08), transparent 40%),
-            #05070c;
-        background-attachment: fixed;
-    }
-    .ssad-page-header {
-        font-size: 1.55rem;
-        font-weight: 700;
-        letter-spacing: 0.2px;
-        padding: 2px 0 10px 0;
-        border-bottom: 1px solid rgba(255,255,255,0.08);
-        margin-bottom: 14px;
-    }
-    .ssad-page-header span { color: rgba(255,255,255,0.55); font-weight: 500; }
+    :root { --line:rgba(255,255,255,.09); --green:#39e58c; --red:#ff5c68; --amber:#f6c85f; --blue:#68a8ff; }
+    .stApp { background:radial-gradient(circle at 12% 8%,rgba(49,106,220,.16),transparent 27%),radial-gradient(circle at 88% 18%,rgba(0,205,145,.08),transparent 23%),linear-gradient(180deg,#070a11 0%,#04060b 100%); color:#f5f7fb; }
+    .stApp,.stApp * { font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    [data-testid="stHeader"] { background:rgba(5,7,12,.72)!important; backdrop-filter:blur(18px); }
+    [data-testid="stMainBlockContainer"] { padding-top:1.6rem!important; }
+    [data-testid="stVerticalBlockBorderWrapper"] { border-color:var(--line)!important; background:linear-gradient(180deg,rgba(18,23,36,.78),rgba(10,13,21,.78)); }
+    .ssad-page-header { font-size:1.08rem;font-weight:700;letter-spacing:.2px;padding:7px 0 12px;border-bottom:1px solid var(--line);margin-bottom:16px;color:#e9edf5; }
+    .ssad-page-header span { color:#737d91;font-weight:500; }
+    .ssad-eyebrow { color:#6f7a8e;text-transform:uppercase;letter-spacing:1.8px;font-size:.68rem;font-weight:800; }
+    .ssad-hero { position:relative;overflow:hidden;min-height:255px;border-radius:22px;border:1px solid rgba(255,255,255,.10);background:radial-gradient(circle at 80% 30%,rgba(82,153,255,.20),transparent 26%),radial-gradient(circle at 70% 90%,rgba(46,229,140,.10),transparent 24%),linear-gradient(120deg,rgba(17,23,36,.97),rgba(7,10,17,.90));box-shadow:0 22px 70px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.035); }
+    .ssad-hero-grid { position:absolute;inset:0;opacity:.22;background-image:linear-gradient(rgba(255,255,255,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.045) 1px,transparent 1px);background-size:42px 42px;mask-image:linear-gradient(90deg,#000 0%,transparent 85%); }
+    .ssad-hero-copy { position:relative;z-index:2;padding:30px 34px;max-width:62%; }
+    .ssad-hero h1 { margin:8px 0;font-size:clamp(2rem,4vw,3.2rem);line-height:1.02;letter-spacing:-1.7px;color:#fff; }
+    .ssad-hero p { color:#9aa5b7;font-size:1rem;max-width:620px;line-height:1.65;margin:0 0 20px; }
+    .ssad-chip-row { display:flex;flex-wrap:wrap;gap:8px; }.ssad-chip { padding:7px 11px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.045);color:#c9d0dc;font-size:.75rem;font-weight:700; }.ssad-chip.live { color:#56ed9d;border-color:rgba(57,229,140,.25);background:rgba(57,229,140,.08); }
+    .ssad-hero-art { position:absolute;right:18px;bottom:-2px;width:45%;height:94%;opacity:.96; }
+    .ssad-market-card { position:relative;overflow:hidden;min-height:126px;padding:18px;border-radius:17px;border:1px solid var(--line);background:linear-gradient(180deg,rgba(18,23,35,.92),rgba(9,12,20,.92));box-shadow:0 12px 34px rgba(0,0,0,.22); }.ssad-market-card .label{color:#8792a5;font-size:.73rem;font-weight:700;text-transform:uppercase;letter-spacing:.9px}.ssad-market-card .price{font-size:1.35rem;font-weight:800;margin-top:7px}.ssad-market-card .move{font-size:.75rem;font-weight:800}.up{color:var(--green)!important}.down{color:var(--red)!important}.ssad-mini-chart{position:absolute;right:10px;bottom:7px;width:47%;height:52px;opacity:.8}
+    .ssad-section-title{font-size:1.02rem;font-weight:800;margin:8px 0 10px;color:#e9edf5}.ssad-action-card{min-height:205px;position:relative;overflow:hidden;padding:20px;border-radius:18px;border:1px solid var(--line);background:linear-gradient(145deg,rgba(19,24,37,.92),rgba(8,11,18,.92));transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}.ssad-action-card:hover{transform:translateY(-3px);border-color:rgba(104,168,255,.32);box-shadow:0 18px 45px rgba(0,0,0,.32)}.ssad-action-card .art{height:55px;margin-bottom:10px}.ssad-action-card h3{margin:0 0 6px;font-size:1.05rem}.ssad-action-card p{color:#8e97a9;font-size:.78rem;line-height:1.5;min-height:42px}
+    .ssad-status-card{border:1px solid var(--line);border-radius:17px;padding:17px 18px;background:rgba(12,16,26,.76)}.ssad-status-card .k{color:#788398;font-size:.7rem;text-transform:uppercase;letter-spacing:1px;font-weight:800}.ssad-status-card .v{font-size:1.2rem;font-weight:800;margin-top:6px}.ssad-feed{padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:space-between;gap:10px}.ssad-feed:last-child{border-bottom:0}.ssad-feed .symbol{font-weight:800}.ssad-feed .meta{color:#7f899b;font-size:.73rem}.ssad-badge{display:inline-flex;align-items:center;gap:5px;padding:5px 8px;border-radius:7px;font-size:.68rem;font-weight:800;border:1px solid rgba(255,255,255,.08)}.ssad-badge.green{color:#5cf0a1;background:rgba(57,229,140,.08)}.ssad-badge.amber{color:#ffd36e;background:rgba(246,200,95,.08)}.ssad-badge.blue{color:#8dbbff;background:rgba(104,168,255,.08)}.ssad-footer-note{color:#667084;font-size:.68rem;margin-top:14px}
+    .stButton>button{border-radius:10px!important;border:1px solid rgba(255,255,255,.10)!important;background:rgba(255,255,255,.045)!important;color:#e8ecf4!important;font-weight:700!important}.stButton>button:hover{border-color:rgba(104,168,255,.38)!important;background:rgba(104,168,255,.09)!important}
     </style>
     """,
     unsafe_allow_html=True,
@@ -895,91 +897,64 @@ if st.session_state.bot_open:
                 "(Chrome/Edge work best) — no extra key needed for that part."
             )
 
+# --- DASHBOARD VISUAL HELPERS ---
+def sparkline_svg(points, stroke='#68a8ff', fill='rgba(104,168,255,.10)'):
+    pts=[float(x) for x in points]; mn,mx=min(pts),max(pts); span=(mx-mn) or 1
+    coords=[]
+    for i,v in enumerate(pts):
+        x=4+(i/(len(pts)-1))*192; y=45-((v-mn)/span)*36; coords.append(f'{x:.1f},{y:.1f}')
+    poly=' '.join(coords)
+    return f"<svg class='ssad-mini-chart' viewBox='0 0 200 52' preserveAspectRatio='none'><polyline points='{poly}' fill='none' stroke='{stroke}' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/><polyline points='4,49 {poly} 196,49' fill='{fill}' stroke='none' opacity='.55'/></svg>"
+
+def action_art(kind):
+    arts={
+      'chart':'<svg viewBox="0 0 120 54" width="120" height="54"><path d="M5 45 L25 35 L40 39 L58 19 L74 27 L95 8 L115 16" fill="none" stroke="#68a8ff" stroke-width="3"/><path d="M5 45 L25 35 L40 39 L58 19 L74 27 L95 8 L115 16 L115 52 L5 52Z" fill="rgba(104,168,255,.10)"/><circle cx="95" cy="8" r="4" fill="#39e58c"/></svg>',
+      'risk':'<svg viewBox="0 0 120 54" width="120" height="54"><circle cx="42" cy="27" r="20" fill="none" stroke="#f6c85f" stroke-width="7" stroke-dasharray="72 55"/><circle cx="42" cy="27" r="20" fill="none" stroke="#39e58c" stroke-width="7" stroke-dasharray="42 85" transform="rotate(-35 42 27)"/><text x="42" y="31" text-anchor="middle" fill="#fff" font-size="10" font-weight="800">1.8R</text><path d="M78 39 L88 29 L97 35 L114 14" fill="none" stroke="#68a8ff" stroke-width="3"/></svg>',
+      'broker':'<svg viewBox="0 0 120 54" width="120" height="54"><rect x="6" y="10" width="108" height="34" rx="8" fill="rgba(255,255,255,.035)" stroke="rgba(255,255,255,.12)"/><circle cx="23" cy="27" r="6" fill="#39e58c"/><path d="M38 27 H95" stroke="#68a8ff" stroke-width="3"/><path d="M83 19 L96 27 L83 35" fill="none" stroke="#68a8ff" stroke-width="3"/></svg>',
+      'calendar':'<svg viewBox="0 0 120 54" width="120" height="54"><rect x="8" y="8" width="104" height="39" rx="7" fill="rgba(255,255,255,.035)" stroke="rgba(255,255,255,.12)"/><path d="M8 19 H112" stroke="#68a8ff"/><path d="M27 5 V15 M93 5 V15" stroke="#f6c85f" stroke-width="4" stroke-linecap="round"/><circle cx="30" cy="31" r="4" fill="#ff5c68"/><circle cx="52" cy="31" r="4" fill="#f6c85f"/><circle cx="74" cy="31" r="4" fill="#39e58c"/></svg>',
+      'ai':'<svg viewBox="0 0 120 54" width="120" height="54"><circle cx="37" cy="27" r="19" fill="rgba(104,168,255,.12)" stroke="#68a8ff"/><path d="M28 28 Q37 15 46 28 Q37 39 28 28Z" fill="none" stroke="#39e58c" stroke-width="2.5"/><path d="M66 15 L73 27 L66 39 M86 15 L79 27 L86 39" fill="none" stroke="#f6c85f" stroke-width="3" stroke-linecap="round"/></svg>'}
+    return arts[kind]
+
 # ==========================================
 # 📊 VIEW 1: DASHBOARD
 # ==========================================
-if st.session_state.active_tab == "📊 Dashboard":
-    st.title("Smart Session Anomaly Detector")
-    st.caption("Multi-Asset Quantitative Intelligence & Risk Framework")
-
-    st.markdown("### Quick Actions")
-    q1, q2, q3, q4, q5 = st.columns(5)
-
-    with q1:
-        with st.container(border=True):
-            st.markdown("#### 📈 Chart Analysis")
-            st.caption("Live TradingView viewport with anomaly detection markers.")
-            st.button(
-                "Open Charts →",
-                key="btn_qa_charts",
-                use_container_width=True,
-                on_click=switch_page,
-                args=("📈 Chart Analysis",),
-            )
-
-    with q2:
-        with st.container(border=True):
-            st.markdown("#### 🧮 Pip & Risk Engine")
-            st.caption("Calculate exact position sizing and risk-to-reward ratios.")
-            st.button(
-                "Open Calculator →",
-                key="btn_qa_calc",
-                use_container_width=True,
-                on_click=switch_page,
-                args=("🧮 Pip & Risk Calculator",),
-            )
-
-    with q3:
-        with st.container(border=True):
-            st.markdown("#### ⚡ Broker Gateway")
-            st.caption(
-                "Route mock or live WebSockets trades directly to MT5 or Binance."
-            )
-            st.button(
-                "Open Gateway →",
-                key="btn_qa_broker",
-                use_container_width=True,
-                on_click=switch_page,
-                args=("⚡ Broker Gateway",),
-            )
-
-    with q4:
-        with st.container(border=True):
-            st.markdown("#### 📅 Economic Calendar")
-            st.caption("Monitor high-impact CPI, NFP, and rate decision events.")
-            st.button(
-                "View Calendar →",
-                key="btn_qa_cal",
-                use_container_width=True,
-                on_click=switch_page,
-                args=("📅 Economic Calendar",),
-            )
-
-    with q5:
-        with st.container(border=True):
-            st.markdown("#### 🤖 AI Co-Pilot")
-            st.caption("Chat, voice, live signals & your saved strategies/EAs.")
-            st.button(
-                "Open Co-Pilot →",
-                key="btn_qa_bot",
-                use_container_width=True,
-                on_click=open_bot,
-            )
-
-    st.divider()
-    st.markdown("### Recent Trade Activity")
-    if len(st.session_state.positions) > 0:
-        st.dataframe(
-            pd.DataFrame(st.session_state.positions), use_container_width=True
-        )
-    else:
-        st.info(
-            "No active trades recorded. Use 'Open Charts' or 'Open Gateway' to"
-            " route an execution order."
-        )
+if st.session_state.active_tab == '📊 Dashboard':
+    hero_html = f'''<div class="ssad-hero"><div class="ssad-hero-grid"></div><div class="ssad-hero-copy"><div class="ssad-eyebrow">Institutional Quant Terminal • Session Intelligence</div><h1>Smart Session<br/>Anomaly Detector</h1><p>Multi-asset market intelligence, anomaly detection, execution controls and systematic strategy research — presented in one professional workspace.</p><div class="ssad-chip-row"><span class="ssad-chip live">● ML ENGINE ONLINE</span><span class="ssad-chip">12 Markets</span><span class="ssad-chip">15m Signal Layer</span><span class="ssad-chip">Paper Execution Ready</span></div></div><div class="ssad-hero-art"><svg viewBox="0 0 600 300" width="100%" height="100%" preserveAspectRatio="none"><defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#68a8ff" stop-opacity=".32"/><stop offset="1" stop-color="#68a8ff" stop-opacity="0"/></linearGradient></defs><g opacity=".28" stroke="#fff"><path d="M30 70 H570 M30 130 H570 M30 190 H570 M30 250 H570"/><path d="M110 30 V270 M200 30 V270 M290 30 V270 M380 30 V270 M470 30 V270"/></g><path d="M25 245 L70 214 L108 224 L146 160 L190 185 L232 120 L270 145 L314 91 L355 128 L405 74 L442 104 L480 58 L525 84 L575 35 L575 290 L25 290Z" fill="url(#area)"/><path d="M25 245 L70 214 L108 224 L146 160 L190 185 L232 120 L270 145 L314 91 L355 128 L405 74 L442 104 L480 58 L525 84 L575 35" fill="none" stroke="#68a8ff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M405 74 L442 104 L480 58 L525 84 L575 35" fill="none" stroke="#39e58c" stroke-width="4"/><circle cx="575" cy="35" r="6" fill="#39e58c"/></svg></div></div>'''
+    st.markdown(hero_html, unsafe_allow_html=True)
+    st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="ssad-section-title">Market Pulse</div>', unsafe_allow_html=True)
+    market_cards=[('XAU/USD','$2,468.40','+0.84%','up',[44,48,42,52,49,58,55,67,64,76,72,82]),('BTC/USDT','$78,820','+2.15%','up',[45,38,51,48,60,54,68,62,74,69,83,88]),('NIFTY 50','24,310.80','-0.24%','down',[76,72,78,70,74,66,68,60,62,54,57,49]),('EUR/USD','1.0825','-0.08%','down',[68,73,67,70,63,66,58,61,55,59,51,53])]
+    mc=st.columns(4,gap='medium')
+    for col,(label,price,move,cls,points) in zip(mc,market_cards):
+        with col: st.markdown(f'<div class="ssad-market-card"><div class="label">{label}</div><div class="price">{price}</div><div class="move {cls}">{move} <span style="color:#657084;font-weight:500">today</span></div>{sparkline_svg(points,"#39e58c" if cls=="up" else "#ff5c68","rgba(57,229,140,.09)" if cls=="up" else "rgba(255,92,104,.08)")}</div>',unsafe_allow_html=True)
+    st.markdown('<div style="height:16px"></div>',unsafe_allow_html=True)
+    st.markdown('<div class="ssad-section-title">Workspace</div>',unsafe_allow_html=True)
+    actions=[('chart','Chart Analysis','Candlesticks, indicators, anomaly zones and direct execution controls.','Open Charts →','📈 Chart Analysis'),('risk','Pip & Risk Engine','Position sizing, risk-to-reward and exposure planning before execution.','Open Calculator →','🧮 Pip & Risk Calculator'),('broker','Broker Gateway','Connection layer for paper trading and supported broker/API bridges.','Open Gateway →','⚡ Broker Gateway'),('calendar','Economic Calendar','High-impact macro events with forecast, actual and previous values.','View Calendar →','📅 Economic Calendar'),('ai','AI Co-Pilot','Market context, strategy assistance, saved EAs and voice interaction.','Open Co-Pilot →','BOT')]
+    qa=st.columns(5,gap='medium')
+    for col,(kind,title,desc,btn,target) in zip(qa,actions):
+        with col:
+            st.markdown(f'<div class="ssad-action-card"><div class="art">{action_art(kind)}</div><h3>{title}</h3><p>{desc}</p></div>',unsafe_allow_html=True)
+            if target=='BOT': st.button(btn,key=f'pro_qa_{kind}',use_container_width=True,on_click=open_bot)
+            else: st.button(btn,key=f'pro_qa_{kind}',use_container_width=True,on_click=switch_page,args=(target,))
+    st.markdown('<div style="height:16px"></div>',unsafe_allow_html=True)
+    left,right=st.columns([1.35,.65],gap='medium')
+    with left:
+        st.markdown('<div class="ssad-section-title">Live System Monitor</div>',unsafe_allow_html=True)
+        st.markdown('<div class="ssad-status-card"><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px"><div><div class="k">ML Signal Layer</div><div class="v" style="color:#39e58c">ONLINE</div></div><div><div class="k">Market Feed</div><div class="v">15s sync</div></div><div><div class="k">Execution</div><div class="v">PAPER</div></div><div><div class="k">AI Co-Pilot</div><div class="v" style="color:#68a8ff">READY</div></div></div></div>',unsafe_allow_html=True)
+        st.markdown('<div class="ssad-section-title" style="margin-top:18px">Recent Activity</div>',unsafe_allow_html=True)
+        if st.session_state.positions:
+            for p in st.session_state.positions[:6]:
+                side_cls='green' if p.get('Type') in ('BUY/LONG','LONG','BUY') else 'amber'
+                st.markdown(f'<div class="ssad-feed"><div><div class="symbol">{p.get("Asset","—")} <span class="ssad-badge {side_cls}">{p.get("Type","—")}</span></div><div class="meta">{p.get("Timestamp","—")} • {p.get("Bridge","Demo Simulated")}</div></div><div style="font-weight:800">{p.get("Price","—")}</div></div>',unsafe_allow_html=True)
+        else: st.markdown('<div class="ssad-status-card"><span style="color:#7f899b">No execution activity yet. Open Chart Analysis to inspect the market and place a paper trade.</span></div>',unsafe_allow_html=True)
+    with right:
+        st.markdown('<div class="ssad-section-title">Session Snapshot</div>',unsafe_allow_html=True)
+        for k,v,cls in [('Anomaly Engine','Monitoring','green'),('EA Deployments',str(len(st.session_state.ea_deployments)),'blue'),('Saved Strategies',str(len(st.session_state.strategy_library)),'amber'),('Broker Mode',st.session_state.broker_api_mode,'blue')]:
+            st.markdown(f'<div class="ssad-status-card" style="margin-bottom:10px"><div class="k">{k}</div><div class="v">{v}</div><span class="ssad-badge {cls}">● ACTIVE</span></div>',unsafe_allow_html=True)
+    st.markdown('<div class="ssad-footer-note">Market values may be delayed or simulated depending on the connected data source. Execution remains paper/demo until a broker bridge is configured.</div>',unsafe_allow_html=True)
 
 # ==========================================
-# 📈 VIEW 2: AI TRADE & CHARTS
+# 📈 VIEW 2: CHART ANALYSIS
 # ==========================================
 elif st.session_state.active_tab == "📈 Chart Analysis":
     st.title("📈 Smart Session Anomaly Detector | Charts")
