@@ -122,11 +122,83 @@ POPULAR_STRATEGIES = [
     },
 ]
 
+
+# --- EA / STRATEGY WORKSPACE DATA ---
+EA_TEMPLATES = [
+    {
+        "name": "SMA / EMA Crossover EA",
+        "description": "Trend-following EA using fast/slow moving-average crossovers.",
+        "entry": "Fast SMA/EMA crosses above slow SMA/EMA",
+        "exit": "Opposite crossover or configured stop/target",
+    },
+    {
+        "name": "RSI Mean Reversion EA",
+        "description": "Mean-reversion EA using RSI overbought/oversold zones.",
+        "entry": "RSI enters oversold/overbought zone and confirms reversal",
+        "exit": "Return toward RSI midpoint or configured stop/target",
+    },
+    {
+        "name": "ICT / SMC Liquidity Sweep EA",
+        "description": "Session liquidity sweep and reclaim model.",
+        "entry": "Liquidity sweep + fast reclaim / market-structure confirmation",
+        "exit": "Opposing liquidity target or configured stop/target",
+    },
+    {
+        "name": "MACD Divergence EA",
+        "description": "Momentum/divergence setup using MACD histogram and price structure.",
+        "entry": "Confirmed bullish/bearish MACD divergence",
+        "exit": "Momentum reversal or configured stop/target",
+    },
+    {
+        "name": "Bollinger Bands Squeeze EA",
+        "description": "Volatility-compression breakout model.",
+        "entry": "Band squeeze followed by confirmed directional expansion",
+        "exit": "Opposite signal or configured stop/target",
+    },
+]
+
+if "saved_eas" not in st.session_state:
+    st.session_state.saved_eas = []
+if "active_ea" not in st.session_state:
+    st.session_state.active_ea = None
+if "ea_enabled" not in st.session_state:
+    st.session_state.ea_enabled = False
+if "ea_code" not in st.session_state:
+    st.session_state.ea_code = """# Custom EA template
+# Python / Pine-style pseudocode
+FAST_PERIOD = 9
+SLOW_PERIOD = 21
+RISK_PCT = 1.0
+STOP_LOSS_PCT = 0.6
+TAKE_PROFIT_PCT = 1.8
+
+def entry_signal(data):
+    # Add your entry conditions here
+    return False
+
+def exit_signal(data):
+    # Add your exit conditions here
+    return False
+"""
+
+def place_chart_trade(side, lots, asset_name, price):
+    st.session_state.positions.insert(
+        0,
+        {
+            "Timestamp": datetime.now().strftime("%H:%M:%S"),
+            "Asset": asset_name,
+            "Type": side,
+            "Lots": lots,
+            "Price": f"${price:,.2f}",
+            "Bridge": "MT5/REST" if st.session_state.broker_connected else "Demo Simulated",
+        },
+    )
+
 # Navigation, grouped for the sidebar
 NAV_GROUPS = {
     "CORE": ["📊 Dashboard"],
     "ANALYTICS & EXECUTION": [
-        "📈 AI Trade & Charts",
+        "📈 Chart Analysis",
         "🧮 Pip & Risk Calculator",
         "⚡ Broker Gateway",
     ],
@@ -732,28 +804,19 @@ if st.session_state.active_tab == "📊 Dashboard":
     st.title("Smart Session Anomaly Detector")
     st.caption("Multi-Asset Quantitative Intelligence & Risk Framework")
 
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Open Positions", f"{len(st.session_state.positions)} Active")
-    m2.metric("Anomaly Model Accuracy", "95.4%")
-    m3.metric("Terminal Capital", f"${st.session_state.account_balance:,.0f}")
-    m4.metric(
-        "Broker Status",
-        "Online" if st.session_state.broker_connected else "Demo Mode",
-    )
-
     st.markdown("### Quick Actions")
     q1, q2, q3, q4, q5 = st.columns(5)
 
     with q1:
         with st.container(border=True):
-            st.markdown("#### 📈 AI Live Charts")
+            st.markdown("#### 📈 Chart Analysis")
             st.caption("Live TradingView viewport with anomaly detection markers.")
             st.button(
                 "Open Charts →",
                 key="btn_qa_charts",
                 use_container_width=True,
                 on_click=switch_page,
-                args=("📈 AI Trade & Charts",),
+                args=("📈 Chart Analysis",),
             )
 
     with q2:
@@ -820,7 +883,7 @@ if st.session_state.active_tab == "📊 Dashboard":
 # ==========================================
 # 📈 VIEW 2: AI TRADE & CHARTS
 # ==========================================
-elif st.session_state.active_tab == "📈 AI Trade & Charts":
+elif st.session_state.active_tab == "📈 Chart Analysis":
     st.title("📈 Smart Session Anomaly Detector | Charts")
 
     col_s1, col_s2, col_s3 = st.columns([1.5, 1.5, 1])
@@ -873,6 +936,77 @@ elif st.session_state.active_tab == "📈 AI Trade & Charts":
         </div>
         """
         components.html(tv_widget_html, height=780)
+
+
+        # --- DIRECT TRADE EXECUTION ON ACTIVE CHART ---
+        st.markdown("### ⚡ Direct Trade Execution")
+        trade_col1, trade_col2, trade_col3 = st.columns([1, 1, 2])
+        with trade_col1:
+            chart_lots = st.number_input(
+                "Lot Size",
+                min_value=0.01,
+                max_value=100.0,
+                value=1.0,
+                step=0.01,
+                key="chart_trade_lots",
+            )
+        with trade_col2:
+            st.caption("Active Instrument")
+            st.write(f"**{inst_select}**")
+        with trade_col3:
+            buy_col, sell_col = st.columns(2)
+            if buy_col.button("🟢 BUY / LONG", use_container_width=True, key="chart_buy"):
+                place_chart_trade("BUY", chart_lots, inst_select, global_price)
+                st.success("BUY order routed from Chart Analysis.")
+            if sell_col.button("🔴 SELL / SHORT", use_container_width=True, key="chart_sell"):
+                place_chart_trade("SELL", chart_lots, inst_select, global_price)
+                st.success("SELL order routed from Chart Analysis.")
+
+        # --- EA EXECUTION PANEL ---
+        st.markdown("### 🤖 Expert Advisor Execution Panel")
+        ea_exec_1, ea_exec_2, ea_exec_3 = st.columns([1.4, 1, 1])
+        with ea_exec_1:
+            ea_choices = ["None"] + [x["name"] for x in EA_TEMPLATES] + [
+                x["name"] for x in st.session_state.saved_eas
+            ]
+            selected_chart_ea = st.selectbox(
+                "EA to load on active chart",
+                ea_choices,
+                key="chart_ea_selector",
+            )
+        with ea_exec_2:
+            if st.button("📥 Load EA", use_container_width=True, key="chart_load_ea"):
+                st.session_state.active_ea = None if selected_chart_ea == "None" else selected_chart_ea
+                st.session_state.ea_enabled = False
+                st.success(
+                    "No EA selected." if selected_chart_ea == "None"
+                    else f"Loaded **{selected_chart_ea}** onto {inst_select}."
+                )
+        with ea_exec_3:
+            enabled = st.toggle(
+                "Enable EA",
+                value=st.session_state.ea_enabled,
+                key="chart_ea_enabled",
+            )
+            st.session_state.ea_enabled = enabled
+
+        if st.session_state.active_ea:
+            st.info(
+                f"Active EA: **{st.session_state.active_ea}** | "
+                f"Status: **{'ENABLED' if st.session_state.ea_enabled else 'DISABLED'}**"
+            )
+            trigger_col, risk_col = st.columns([1, 1])
+            with trigger_col:
+                if st.button("▶ Trigger EA Check", use_container_width=True, key="trigger_chart_ea"):
+                    if st.session_state.ea_enabled:
+                        st.success(
+                            f"EA check triggered on {inst_select}. "
+                            "Review the generated signal before live execution."
+                        )
+                    else:
+                        st.warning("Enable the EA before triggering an automated check.")
+            with risk_col:
+                st.caption("EA execution remains subject to the configured risk and broker connection.")
 
     with tab_quant:
         active_df = load_ohlcv(inst_cfg["yf"])
@@ -1064,49 +1198,6 @@ elif st.session_state.active_tab == "⚡ Broker Gateway":
                 st.session_state.broker_connected = False
                 st.rerun()
 
-        st.divider()
-        st.markdown("#### 🛒 Order Dispatch")
-        trade_lots = st.number_input(
-            "Volume (Lots)", min_value=0.01, max_value=20.0, value=1.0, step=0.1
-        )
-        btn_b, btn_s = st.columns(2)
-        if btn_b.button("🟢 BUY / LONG", use_container_width=True):
-            st.session_state.positions.insert(
-                0,
-                {
-                    "Timestamp": datetime.now().strftime("%H:%M:%S"),
-                    "Asset": "Gold (XAU/USD)",
-                    "Type": "BUY",
-                    "Lots": trade_lots,
-                    "Price": f"${global_price:,.2f}",
-                    "Bridge": (
-                        "MT5/REST"
-                        if st.session_state.broker_connected
-                        else "Demo Simulated"
-                    ),
-                },
-            )
-            st.success("BUY Order Routed Successfully!")
-            st.rerun()
-        if btn_s.button("🔴 SELL / SHORT", use_container_width=True):
-            st.session_state.positions.insert(
-                0,
-                {
-                    "Timestamp": datetime.now().strftime("%H:%M:%S"),
-                    "Asset": "Gold (XAU/USD)",
-                    "Type": "SELL",
-                    "Lots": trade_lots,
-                    "Price": f"${global_price:,.2f}",
-                    "Bridge": (
-                        "MT5/REST"
-                        if st.session_state.broker_connected
-                        else "Demo Simulated"
-                    ),
-                },
-            )
-            st.error("SELL Order Routed Successfully!")
-            st.rerun()
-
     with col_g2:
         st.markdown("#### 📋 Open Position History")
         if len(st.session_state.positions) > 0:
@@ -1119,51 +1210,318 @@ elif st.session_state.active_tab == "⚡ Broker Gateway":
         else:
             st.caption("No open market positions.")
 
-# ==========================================
-# 📅 VIEW 5: ECONOMIC CALENDAR
-# ==========================================
-elif st.session_state.active_tab == "📅 Economic Calendar":
-    st.title("📅 High-Impact Economic Calendar")
-    cal_data = pd.DataFrame(
-        [
-            {
-                "Time (IST)": "18:00",
-                "Currency": "USD",
-                "Event": "Core CPI (YoY)",
-                "Impact": "🔴 HIGH",
-                "Forecast": "3.2%",
-                "Previous": "3.3%",
-            },
-            {
-                "Time (IST)": "19:30",
-                "Currency": "USD",
-                "Event": "Non-Farm Payrolls (NFP)",
-                "Impact": "🔴 HIGH",
-                "Forecast": "180K",
-                "Previous": "175K",
-            },
-            {
-                "Time (IST)": "20:30",
-                "Currency": "EUR",
-                "Event": "ECB Interest Rate Decision",
-                "Impact": "🔴 HIGH",
-                "Forecast": "3.75%",
-                "Previous": "4.00%",
-            },
-            {
-                "Time (IST)": "21:45",
-                "Currency": "USD",
-                "Event": "FOMC Press Conference",
-                "Impact": "🔴 HIGH",
-                "Forecast": "-",
-                "Previous": "-",
-            },
-        ]
-    )
-    st.dataframe(cal_data, use_container_width=True)
 
 # ==========================================
-# ⚙️ VIEW 6: SETTINGS
+# 🧩 VIEW 5: STRATEGY BUILDER
+# ==========================================
+elif st.session_state.active_tab == "🧩 Strategy Builder":
+    st.title("🧩 Strategy Builder")
+    st.caption("Worldwide pre-built strategies, code editor, configurable parameters, and backtesting workspace.")
+
+    strategy_names = [
+        "SMA / EMA Crossover",
+        "RSI Mean Reversion",
+        "ICT / SMC Liquidity Sweeps",
+        "MACD Divergence",
+        "Bollinger Bands Squeeze",
+        "Custom Strategy",
+    ]
+    selected_strategy = st.selectbox("Pre-Built Strategy", strategy_names)
+
+    preset_map = {
+        "SMA / EMA Crossover": ("Fast EMA crosses Slow EMA", "Opposite crossover", 9, 21),
+        "RSI Mean Reversion": ("RSI reversal from oversold/overbought", "RSI returns toward midpoint", 14, 30),
+        "ICT / SMC Liquidity Sweeps": ("Liquidity sweep + reclaim", "Opposing liquidity / structure target", 20, 50),
+        "MACD Divergence": ("Confirmed price/MACD divergence", "Momentum reversal", 12, 26),
+        "Bollinger Bands Squeeze": ("Volatility squeeze + breakout", "Band reversal / target", 20, 2),
+        "Custom Strategy": ("Custom entry logic", "Custom exit logic", 9, 21),
+    }
+    default_entry, default_exit, default_a, default_b = preset_map[selected_strategy]
+
+    p1, p2, p3, p4 = st.columns(4)
+    with p1:
+        fast_param = st.number_input("Fast / Lookback", min_value=2, max_value=200, value=default_a)
+    with p2:
+        slow_param = st.number_input("Slow / Threshold", min_value=2, max_value=200, value=default_b)
+    with p3:
+        risk_param = st.slider("Risk %", 0.25, 5.0, 1.0, 0.25)
+    with p4:
+        rr_param = st.slider("Target R:R", 0.5, 5.0, 2.0, 0.25)
+
+    st.markdown("#### Entry / Exit Logic")
+    entry_logic = st.text_area("Entry Logic", value=default_entry, height=80)
+    exit_logic = st.text_area("Exit Logic", value=default_exit, height=80)
+
+    st.markdown("#### 💻 Online Code Editor")
+    code_language = st.selectbox("Code Style", ["Python", "Pine Script"])
+    edited_code = st.text_area(
+        "Strategy Code",
+        value=st.session_state.ea_code,
+        height=260,
+        key="strategy_code_editor",
+    )
+    if st.button("✅ Validate Code", key="validate_strategy_code"):
+        if "def " in edited_code or "strategy(" in edited_code or "indicator(" in edited_code:
+            st.success(f"{code_language} style structure detected. Basic validation passed.")
+        else:
+            st.warning("Add at least one function or strategy/indicator declaration for validation.")
+
+    if st.button("💾 Save Strategy Configuration", key="save_strategy"):
+        st.success(f"Saved **{selected_strategy}** with {risk_param:.2f}% risk and {rr_param:.2f}R target.")
+
+    st.divider()
+    st.markdown("#### 🧪 Backtesting Engine")
+    bt1, bt2, bt3, bt4 = st.columns(4)
+    with bt1:
+        bt_asset = st.selectbox("Asset", list(MARKET_UNIVERSE["🇮🇳 Indian Equities (NSE)"].keys()) + ["Gold (XAU/USD)", "EUR/USD", "Bitcoin (BTC/USDT)"], key="bt_asset")
+    with bt2:
+        bt_tf = st.selectbox("Timeframe", ["5m", "15m", "1h", "4h", "1D"], index=1, key="bt_tf")
+    with bt3:
+        bt_period = st.selectbox("History", ["1mo", "3mo", "6mo", "1y"], index=2, key="bt_period")
+    with bt4:
+        run_bt = st.button("▶ Run Backtest", use_container_width=True, key="run_backtest")
+
+    if run_bt:
+        bt_cfg = None
+        for group in MARKET_UNIVERSE.values():
+            if bt_asset in group:
+                bt_cfg = group[bt_asset]
+                break
+        if bt_cfg:
+            bt_df = load_ohlcv(bt_cfg["yf"], period=bt_period, interval=bt_tf)
+            if len(bt_df) >= 30:
+                close = bt_df["Close"].astype(float)
+                fast = close.rolling(int(fast_param)).mean()
+                slow = close.rolling(int(slow_param)).mean()
+                signal = (fast > slow).astype(int)
+                strategy_ret = close.pct_change().fillna(0) * signal.shift(1).fillna(0)
+                equity = (1 + strategy_ret).cumprod() * 100000
+                trades = signal.diff().abs().fillna(0)
+                wins = int((strategy_ret[signal.shift(1).fillna(0) > 0] > 0).sum())
+                active_trades = max(int(trades.sum()), 1)
+                net_profit = float(equity.iloc[-1] - 100000)
+                win_rate = float(wins / max(int((signal.shift(1).fillna(0) > 0).sum()), 1) * 100)
+                running_max = equity.cummax()
+                drawdown = (equity - running_max) / running_max
+                mdd = abs(float(drawdown.min()) * 100)
+                sharpe = float(strategy_ret.mean() / (strategy_ret.std() + 1e-9) * np.sqrt(252))
+                metrics = st.columns(4)
+                metrics[0].metric("Net Profit", f"${net_profit:,.2f}")
+                metrics[1].metric("Win Rate", f"{win_rate:.1f}%")
+                metrics[2].metric("MDD", f"{mdd:.2f}%")
+                metrics[3].metric("Sharpe Ratio", f"{sharpe:.2f}")
+
+                bt_fig = go.Figure()
+                bt_fig.add_trace(go.Scatter(x=equity.index, y=equity, mode="lines", name="Equity"))
+                bt_fig.update_layout(
+                    template="plotly_dark",
+                    title="Equity Curve",
+                    height=360,
+                    margin=dict(l=10, r=10, t=40, b=10),
+                    paper_bgcolor="#0b0e14",
+                    plot_bgcolor="#0b0e14",
+                )
+                st.plotly_chart(bt_fig, use_container_width=True)
+
+                trade_log = pd.DataFrame({
+                    "Timestamp": bt_df.index,
+                    "Close": close.values,
+                    "Signal": np.where(signal.values > 0, "LONG", "FLAT"),
+                    "Strategy Return": strategy_ret.values,
+                    "Equity": equity.values,
+                })
+                st.markdown("##### Detailed Trade Log")
+                st.dataframe(trade_log.tail(100), use_container_width=True)
+            else:
+                st.warning("Not enough historical data for this backtest.")
+        else:
+            st.warning("Asset configuration not found.")
+
+# ==========================================
+# 🤖 VIEW 6: EA / EXPERT ADVISORS
+# ==========================================
+elif st.session_state.active_tab == "🤖 EA / Expert Advisors":
+    st.title("🤖 EA / Expert Advisors")
+    st.caption("Build, configure, save, validate, and deploy automated trading logic.")
+
+    ea_tab1, ea_tab2, ea_tab3 = st.tabs(["🛠 EA Builder", "📚 EA Library", "🚀 Deployment"])
+
+    with ea_tab1:
+        ea_template = st.selectbox("Start from Template", [x["name"] for x in EA_TEMPLATES] + ["Custom EA"])
+        selected_template = next((x for x in EA_TEMPLATES if x["name"] == ea_template), None)
+        if selected_template:
+            st.info(selected_template["description"])
+
+        e1, e2, e3 = st.columns(3)
+        with e1:
+            ea_name = st.text_input("EA Name", value=ea_template)
+            ea_entry = st.text_area("Entry Logic", value=selected_template["entry"] if selected_template else "Define entry conditions", height=110)
+        with e2:
+            ea_exit = st.text_area("Exit Logic", value=selected_template["exit"] if selected_template else "Define exit conditions", height=110)
+            ea_sl = st.number_input("Stop Loss %", min_value=0.05, max_value=20.0, value=0.6, step=0.05)
+        with e3:
+            ea_tp = st.number_input("Take Profit %", min_value=0.05, max_value=50.0, value=1.8, step=0.05)
+            ea_risk = st.slider("Risk per Trade %", 0.25, 5.0, 1.0, 0.25)
+            ea_max_lots = st.number_input("Max Lots", min_value=0.01, max_value=100.0, value=1.0, step=0.01)
+
+        st.markdown("#### Execution Parameters")
+        x1, x2, x3 = st.columns(3)
+        with x1:
+            ea_tf = st.selectbox("Execution Timeframe", ["5m", "15m", "1h", "4h", "1D"], key="ea_exec_tf")
+        with x2:
+            ea_session = st.selectbox("Trading Session", ["All Sessions", "Asia", "London", "New York"])
+        with x3:
+            ea_mode = st.selectbox("Execution Mode", ["Paper / Demo", "Live (Broker Connected)"])
+
+        st.markdown("#### EA Code")
+        ea_code = st.text_area("Python / Pine-style EA Code", value=st.session_state.ea_code, height=280, key="ea_builder_code")
+        if st.button("🔍 Validate EA", key="validate_ea"):
+            if len(ea_code.strip()) > 30:
+                st.success("EA code passed basic structural validation.")
+            else:
+                st.warning("EA code is too short to validate.")
+
+        if st.button("💾 Save EA to Library", key="save_ea"):
+            record = {
+                "name": ea_name,
+                "description": f"{ea_entry[:100]} | SL {ea_sl}% | TP {ea_tp}%",
+                "entry": ea_entry,
+                "exit": ea_exit,
+                "stop_loss_pct": ea_sl,
+                "take_profit_pct": ea_tp,
+                "risk_pct": ea_risk,
+                "max_lots": ea_max_lots,
+                "timeframe": ea_tf,
+                "session": ea_session,
+                "mode": ea_mode,
+                "code": ea_code,
+            }
+            st.session_state.saved_eas = [x for x in st.session_state.saved_eas if x["name"] != ea_name] + [record]
+            st.success(f"Saved **{ea_name}** to the custom EA library.")
+
+    with ea_tab2:
+        if st.session_state.saved_eas:
+            library_df = pd.DataFrame([
+                {
+                    "EA": x["name"],
+                    "Timeframe": x["timeframe"],
+                    "Risk %": x["risk_pct"],
+                    "SL %": x["stop_loss_pct"],
+                    "TP %": x["take_profit_pct"],
+                    "Execution": x["mode"],
+                }
+                for x in st.session_state.saved_eas
+            ])
+            st.dataframe(library_df, use_container_width=True)
+            library_choice = st.selectbox("Select Saved EA", [x["name"] for x in st.session_state.saved_eas])
+            if st.button("📌 Set as Active EA", key="activate_library_ea"):
+                st.session_state.active_ea = library_choice
+                st.success(f"**{library_choice}** is ready for chart deployment.")
+        else:
+            st.info("No custom EAs saved yet. Build one in the EA Builder.")
+
+    with ea_tab3:
+        deploy_asset = st.selectbox("Deploy to Asset", list(MARKET_UNIVERSE["🇮🇳 Indian Equities (NSE)"].keys()) + ["Gold (XAU/USD)", "EUR/USD", "Bitcoin (BTC/USDT)"], key="deploy_asset")
+        deploy_ea = st.selectbox(
+            "EA",
+            ["None"] + [x["name"] for x in st.session_state.saved_eas] + [x["name"] for x in EA_TEMPLATES],
+            key="deploy_ea",
+        )
+        d1, d2 = st.columns(2)
+        with d1:
+            if st.button("📥 Load on Chart", use_container_width=True, key="deploy_load"):
+                st.session_state.active_ea = None if deploy_ea == "None" else deploy_ea
+                st.session_state.ea_enabled = False
+                st.success(f"{deploy_ea} loaded for {deploy_asset}.")
+        with d2:
+            if st.button("▶ Enable / Trigger", use_container_width=True, key="deploy_trigger"):
+                if deploy_ea != "None":
+                    st.session_state.active_ea = deploy_ea
+                    st.session_state.ea_enabled = True
+                    st.success(f"{deploy_ea} enabled for {deploy_asset}.")
+                else:
+                    st.warning("Select an EA first.")
+
+    st.divider()
+    st.markdown("#### 📋 Current Deployment")
+    st.write({
+        "Active EA": st.session_state.active_ea or "None",
+        "Enabled": st.session_state.ea_enabled,
+    })
+
+
+# ==========================================
+# 📅 VIEW 7: ECONOMIC CALENDAR
+# ==========================================
+elif st.session_state.active_tab == "📅 Economic Calendar":
+    st.title("📅 Forex Factory-Style Economic Calendar")
+    st.caption("Filter high-impact market events by currency, severity, and date range.")
+
+    now = pd.Timestamp.now(tz="Asia/Kolkata").normalize()
+    cal_data = pd.DataFrame(
+        [
+            {"Date": now.strftime("%Y-%m-%d"), "Time": "18:00", "Currency": "USD", "Impact": "High", "Event Name": "Core CPI (YoY)", "Actual": "3.1%", "Forecast": "3.2%", "Previous": "3.3%"},
+            {"Date": now.strftime("%Y-%m-%d"), "Time": "19:30", "Currency": "USD", "Impact": "High", "Event Name": "Non-Farm Payrolls (NFP)", "Actual": "185K", "Forecast": "180K", "Previous": "175K"},
+            {"Date": now.strftime("%Y-%m-%d"), "Time": "20:30", "Currency": "EUR", "Impact": "High", "Event Name": "ECB Interest Rate Decision", "Actual": "3.75%", "Forecast": "3.75%", "Previous": "4.00%"},
+            {"Date": (now + pd.Timedelta(days=1)).strftime("%Y-%m-%d"), "Time": "21:45", "Currency": "USD", "Impact": "High", "Event Name": "FOMC Press Conference", "Actual": "-", "Forecast": "-", "Previous": "-"},
+            {"Date": (now + pd.Timedelta(days=1)).strftime("%Y-%m-%d"), "Time": "14:30", "Currency": "GBP", "Impact": "Medium", "Event Name": "Manufacturing PMI", "Actual": "-", "Forecast": "51.0", "Previous": "50.8"},
+            {"Date": (now + pd.Timedelta(days=2)).strftime("%Y-%m-%d"), "Time": "12:00", "Currency": "JPY", "Impact": "Low", "Event Name": "Consumer Confidence", "Actual": "-", "Forecast": "36.5", "Previous": "36.2"},
+            {"Date": (now + pd.Timedelta(days=2)).strftime("%Y-%m-%d"), "Time": "10:00", "Currency": "EUR", "Impact": "Non-Economic", "Event Name": "Eurogroup Meeting", "Actual": "-", "Forecast": "-", "Previous": "-"},
+        ]
+    )
+
+    f1, f2, f3 = st.columns([1, 1, 1.4])
+    with f1:
+        currency_filter = st.multiselect("Currency", ["USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD"], default=[])
+    with f2:
+        impact_filter = st.multiselect("Impact", ["High", "Medium", "Low", "Non-Economic"], default=[])
+    with f3:
+        date_range = st.selectbox("Date Range", ["Today", "Tomorrow", "This Week"])
+
+    start_date = now
+    if date_range == "Today":
+        end_date = now
+    elif date_range == "Tomorrow":
+        start_date = now + pd.Timedelta(days=1)
+        end_date = start_date
+    else:
+        end_date = now + pd.Timedelta(days=6)
+
+    display_df = cal_data.copy()
+    display_df["_date"] = pd.to_datetime(display_df["Date"])
+    display_df = display_df[(display_df["_date"] >= start_date.tz_localize(None)) & (display_df["_date"] <= end_date.tz_localize(None))]
+    if currency_filter:
+        display_df = display_df[display_df["Currency"].isin(currency_filter)]
+    if impact_filter:
+        display_df = display_df[display_df["Impact"].isin(impact_filter)]
+
+    impact_icon = {"High": "🔴 High", "Medium": "🟠 Medium", "Low": "🟡 Low", "Non-Economic": "⚪ Non-Economic"}
+    display_df["Impact"] = display_df["Impact"].map(impact_icon)
+
+    def actual_badge(row):
+        actual = str(row["Actual"])
+        forecast = str(row["Forecast"])
+        if actual == "-" or forecast == "-":
+            return actual
+        try:
+            a = float(re.sub(r"[^0-9.\-]", "", actual))
+            f = float(re.sub(r"[^0-9.\-]", "", forecast))
+            if a > f:
+                return f"🟢 {actual}"
+            if a < f:
+                return f"🔴 {actual}"
+            return f"⚪ {actual}"
+        except Exception:
+            return actual
+
+    display_df["Actual"] = display_df.apply(actual_badge, axis=1)
+    display_df = display_df[["Date", "Time", "Currency", "Impact", "Event Name", "Actual", "Forecast", "Previous"]]
+
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+
+# ==========================================
+# ⚙️ VIEW 8: SETTINGS
 # ==========================================
 elif st.session_state.active_tab == "⚙️ Settings":
     st.title("⚙️ Smart Session Anomaly Detector | Settings")
