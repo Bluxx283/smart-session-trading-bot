@@ -197,6 +197,12 @@ if "strategy_library" not in st.session_state:
     st.session_state.strategy_library = []
 if "last_backtest" not in st.session_state:
     st.session_state.last_backtest = None
+if "quant_stage" not in st.session_state:
+    st.session_state.quant_stage = "💡 Idea"
+if "quant_runs" not in st.session_state:
+    st.session_state.quant_runs = []
+if "quant_candidate" not in st.session_state:
+    st.session_state.quant_candidate = None
 
 def place_chart_trade(side, lots, asset_name, price):
     st.session_state.positions.insert(
@@ -304,6 +310,7 @@ NAV_GROUPS = {
     ],
     "INTELLIGENCE": [
         "🧩 Strategy Builder",
+        "🧪 Quant Lab",
         "📅 Economic Calendar",
     ],
 }
@@ -912,7 +919,8 @@ def action_art(kind):
       'risk':'<svg viewBox="0 0 120 54" width="120" height="54"><circle cx="42" cy="27" r="20" fill="none" stroke="#f6c85f" stroke-width="7" stroke-dasharray="72 55"/><circle cx="42" cy="27" r="20" fill="none" stroke="#39e58c" stroke-width="7" stroke-dasharray="42 85" transform="rotate(-35 42 27)"/><text x="42" y="31" text-anchor="middle" fill="#fff" font-size="10" font-weight="800">1.8R</text><path d="M78 39 L88 29 L97 35 L114 14" fill="none" stroke="#68a8ff" stroke-width="3"/></svg>',
       'broker':'<svg viewBox="0 0 120 54" width="120" height="54"><rect x="6" y="10" width="108" height="34" rx="8" fill="rgba(255,255,255,.035)" stroke="rgba(255,255,255,.12)"/><circle cx="23" cy="27" r="6" fill="#39e58c"/><path d="M38 27 H95" stroke="#68a8ff" stroke-width="3"/><path d="M83 19 L96 27 L83 35" fill="none" stroke="#68a8ff" stroke-width="3"/></svg>',
       'calendar':'<svg viewBox="0 0 120 54" width="120" height="54"><rect x="8" y="8" width="104" height="39" rx="7" fill="rgba(255,255,255,.035)" stroke="rgba(255,255,255,.12)"/><path d="M8 19 H112" stroke="#68a8ff"/><path d="M27 5 V15 M93 5 V15" stroke="#f6c85f" stroke-width="4" stroke-linecap="round"/><circle cx="30" cy="31" r="4" fill="#ff5c68"/><circle cx="52" cy="31" r="4" fill="#f6c85f"/><circle cx="74" cy="31" r="4" fill="#39e58c"/></svg>',
-      'ai':'<svg viewBox="0 0 120 54" width="120" height="54"><circle cx="37" cy="27" r="19" fill="rgba(104,168,255,.12)" stroke="#68a8ff"/><path d="M28 28 Q37 15 46 28 Q37 39 28 28Z" fill="none" stroke="#39e58c" stroke-width="2.5"/><path d="M66 15 L73 27 L66 39 M86 15 L79 27 L86 39" fill="none" stroke="#f6c85f" stroke-width="3" stroke-linecap="round"/></svg>'}
+      'ai':'<svg viewBox="0 0 120 54" width="120" height="54"><circle cx="37" cy="27" r="19" fill="rgba(104,168,255,.12)" stroke="#68a8ff"/><path d="M28 28 Q37 15 46 28 Q37 39 28 28Z" fill="none" stroke="#39e58c" stroke-width="2.5"/><path d="M66 15 L73 27 L66 39 M86 15 L79 27 L86 39" fill="none" stroke="#f6c85f" stroke-width="3" stroke-linecap="round"/></svg>',
+      'quant':'<svg viewBox="0 0 120 54" width="120" height="54"><rect x="8" y="8" width="104" height="38" rx="8" fill="rgba(104,168,255,.06)" stroke="rgba(104,168,255,.35)"/><path d="M18 37 L36 28 L50 32 L67 18 L82 23 L101 11" fill="none" stroke="#68a8ff" stroke-width="3"/><circle cx="101" cy="11" r="4" fill="#39e58c"/><path d="M24 14 V22 M32 14 V22 M40 14 V22" stroke="#f6c85f" stroke-width="2"/></svg>'}
     return arts[kind]
 
 # ==========================================
@@ -929,8 +937,8 @@ if st.session_state.active_tab == '📊 Dashboard':
         with col: st.markdown(f'<div class="ssad-market-card"><div class="label">{label}</div><div class="price">{price}</div><div class="move {cls}">{move} <span style="color:#657084;font-weight:500">today</span></div>{sparkline_svg(points,"#39e58c" if cls=="up" else "#ff5c68","rgba(57,229,140,.09)" if cls=="up" else "rgba(255,92,104,.08)")}</div>',unsafe_allow_html=True)
     st.markdown('<div style="height:16px"></div>',unsafe_allow_html=True)
     st.markdown('<div class="ssad-section-title">Workspace</div>',unsafe_allow_html=True)
-    actions=[('chart','Chart Analysis','Candlesticks, indicators, anomaly zones and direct execution controls.','Open Charts →','📈 Chart Analysis'),('risk','Pip & Risk Engine','Position sizing, risk-to-reward and exposure planning before execution.','Open Calculator →','🧮 Pip & Risk Calculator'),('broker','Broker Gateway','Connection layer for paper trading and supported broker/API bridges.','Open Gateway →','⚡ Broker Gateway'),('calendar','Economic Calendar','High-impact macro events with forecast, actual and previous values.','View Calendar →','📅 Economic Calendar'),('ai','AI Co-Pilot','Market context, strategy assistance, saved EAs and voice interaction.','Open Co-Pilot →','BOT')]
-    qa=st.columns(5,gap='medium')
+    actions=[('chart','Chart Analysis','Candlesticks, indicators, anomaly zones and direct execution controls.','Open Charts →','📈 Chart Analysis'),('risk','Pip & Risk Engine','Position sizing, risk-to-reward and exposure planning before execution.','Open Calculator →','🧮 Pip & Risk Calculator'),('broker','Broker Gateway','Connection layer for paper trading and supported broker/API bridges.','Open Gateway →','⚡ Broker Gateway'),('calendar','Economic Calendar','High-impact macro events with forecast, actual and previous values.','View Calendar →','📅 Economic Calendar'),('ai','AI Co-Pilot','Market context, strategy assistance, saved EAs and voice interaction.','Open Co-Pilot →','BOT'),('quant','Quant Lab','Idea → build → backtest → validate → deploy workflow for systematic research.','Open Quant Lab →','🧪 Quant Lab')]
+    qa=st.columns(6,gap='medium')
     for col,(kind,title,desc,btn,target) in zip(qa,actions):
         with col:
             st.markdown(f'<div class="ssad-action-card"><div class="art">{action_art(kind)}</div><h3>{title}</h3><p>{desc}</p></div>',unsafe_allow_html=True)
@@ -1304,7 +1312,133 @@ elif st.session_state.active_tab == "⚡ Broker Gateway":
         else: st.caption("No open positions in the application session.")
 
 # ==========================================
-# 🧩 VIEW 5: STRATEGY BUILDER
+# 🧪 VIEW 5: QUANT LAB
+# ==========================================
+elif st.session_state.active_tab == "🧪 Quant Lab":
+    st.title("🧪 Quant Lab")
+    st.caption("A structured research pipeline: formulate an idea, build the rules, backtest them, validate robustness, then prepare deployment.")
+
+    stages = ["💡 Idea", "🧱 Build", "🧪 Backtest", "🔬 Validate", "🚀 Deploy"]
+    current = st.session_state.quant_stage
+    st.markdown("<div class='ssad-status-card'><div style='display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap'>" + "".join([f"<span class='ssad-badge {'green' if x==current else 'blue'}'>{x}</span>" for x in stages]) + "</div></div>", unsafe_allow_html=True)
+
+    q1,q2 = st.columns([1.25,.75], gap='medium')
+    with q1:
+        st.markdown("#### 1. Research Brief")
+        idea_name = st.text_input("Strategy / Research Name", value="Session Momentum Research")
+        hypothesis = st.text_area("Market Hypothesis", value="Test whether a fast/slow moving-average regime can identify directional sessions with controlled risk.", height=90)
+        research_notes = st.text_area("Research Notes", value="Define the signal before looking at performance. Keep entry, exit and risk rules explicit.", height=90)
+        st.markdown("#### 2. Build the Rule Set")
+        qb1,qb2,qb3 = st.columns(3)
+        with qb1:
+            q_fast = st.number_input("Fast Period", 2, 100, 9, key="quant_fast")
+        with qb2:
+            q_slow = st.number_input("Slow Period", 3, 250, 21, key="quant_slow")
+        with qb3:
+            q_risk = st.slider("Risk / Trade %", 0.25, 5.0, 1.0, 0.25, key="quant_risk")
+        qc1,qc2 = st.columns(2)
+        with qc1:
+            q_entry = st.text_area("Entry Rules", value="LONG when fast EMA crosses above slow EMA; SHORT on the inverse.", height=85)
+        with qc2:
+            q_exit = st.text_area("Exit Rules", value="Exit on opposite signal or protective stop/target.", height=85)
+        st.markdown("#### 3. Backtest Configuration")
+        assets = list(MARKET_UNIVERSE["🇮🇳 Indian Equities (NSE)"].keys()) + ["Gold (XAU/USD)", "EUR/USD", "Bitcoin (BTC/USDT)"]
+        q1a,q1b,q1c = st.columns(3)
+        with q1a: q_asset=st.selectbox("Research Asset", assets, index=min(0,len(assets)-1), key="quant_asset")
+        with q1b: q_tf=st.selectbox("Timeframe", ["5m","15m","1h","4h","1D"], index=1, key="quant_tf")
+        with q1c: q_period=st.selectbox("History", ["1mo","3mo","6mo","1y"], index=2, key="quant_period")
+        run_quant = st.button("▶ Run Research Backtest", use_container_width=True, key="run_quant_bt")
+
+    with q2:
+        st.markdown("#### Research Checklist")
+        checks = [
+            ("Hypothesis written", bool(hypothesis.strip())),
+            ("Entry rules defined", bool(q_entry.strip())),
+            ("Exit rules defined", bool(q_exit.strip())),
+            ("Risk budget defined", q_risk > 0),
+            ("Historical test selected", bool(q_asset)),
+        ]
+        for label, ok in checks:
+            st.markdown(f"<div class='ssad-feed'><span>{'🟢' if ok else '⚪'} {label}</span><span class='meta'>{'READY' if ok else 'PENDING'}</span></div>", unsafe_allow_html=True)
+        st.markdown("#### Research Discipline")
+        st.info("Use the lab to separate research from execution. A strong backtest is not proof of future performance; review assumptions, costs, data quality and out-of-sample behavior before deployment.")
+        if st.button("🧭 Open Strategy Builder", use_container_width=True):
+            switch_page("🧩 Strategy Builder")
+        if st.button("🤖 Open EA Studio", use_container_width=True):
+            switch_page("🤖 EA / Expert Advisors")
+
+    if run_quant:
+        if q_fast >= q_slow:
+            st.warning("Fast Period should be smaller than Slow Period for this crossover research template.")
+        else:
+            cfg = next((group[q_asset] for group in MARKET_UNIVERSE.values() if q_asset in group), None)
+            if cfg:
+                qdf = load_ohlcv(cfg["yf"], period=q_period, interval=q_tf)
+                result = run_strategy_backtest(qdf, q_fast, q_slow, q_risk, 2.0)
+                if result:
+                    st.session_state.last_backtest = result
+                    st.session_state.quant_candidate = {"name":idea_name,"asset":q_asset,"timeframe":q_tf,"fast":q_fast,"slow":q_slow,"risk":q_risk,"hypothesis":hypothesis}
+                    st.session_state.quant_stage = "🧪 Backtest"
+                    st.session_state.quant_runs.append({"name":idea_name,"asset":q_asset,"timeframe":q_tf,"net_profit":result["net_profit"],"win_rate":result["win_rate"],"mdd":result["mdd"],"sharpe":result["sharpe"],"trades":len(result["trades"])})
+                    st.success("Research run completed. Review the diagnostics below before moving to validation.")
+                else:
+                    st.warning("Not enough historical data for this configuration.")
+
+    if st.session_state.last_backtest:
+        result = st.session_state.last_backtest
+        st.divider()
+        st.markdown("### 📊 Research Diagnostics")
+        m=st.columns(5)
+        m[0].metric("Net Profit",f"${result['net_profit']:,.2f}")
+        m[1].metric("Win Rate",f"{result['win_rate']:.1f}%")
+        m[2].metric("Max Drawdown",f"{result['mdd']:.2f}%")
+        m[3].metric("Sharpe",f"{result['sharpe']:.2f}")
+        m[4].metric("Trades",f"{len(result['trades'])}")
+        c1,c2=st.columns(2,gap='medium')
+        with c1:
+            eq=result["equity"]
+            fig=go.Figure()
+            fig.add_trace(go.Scatter(x=eq.index,y=eq.values,mode="lines",name="Equity"))
+            fig.update_layout(template="plotly_dark",height=330,title="Equity Curve",margin=dict(l=10,r=10,t=45,b=10),paper_bgcolor="#0b0e14",plot_bgcolor="#0b0e14")
+            st.plotly_chart(fig,use_container_width=True)
+        with c2:
+            if not result["trades"].empty:
+                pnl=result["trades"]["P&L"]
+                figp=go.Figure()
+                figp.add_trace(go.Bar(x=list(range(1,len(pnl)+1)),y=pnl,name="Trade P&L"))
+                figp.update_layout(template="plotly_dark",height=330,title="Trade Outcome Distribution",margin=dict(l=10,r=10,t=45,b=10),paper_bgcolor="#0b0e14",plot_bgcolor="#0b0e14")
+                st.plotly_chart(figp,use_container_width=True)
+            else:
+                st.info("No completed trades to visualize.")
+        if st.session_state.quant_candidate:
+            cand=st.session_state.quant_candidate
+            st.markdown("#### 🔬 Validation Gate")
+            v1,v2,v3=st.columns(3)
+            with v1: st.checkbox("Review data assumptions", value=False, key="val_data")
+            with v2: st.checkbox("Run alternate period/timeframe", value=False, key="val_alt")
+            with v3: st.checkbox("Review drawdown tolerance", value=False, key="val_dd")
+            if st.button("🔍 Mark Candidate for Validation", use_container_width=True):
+                st.session_state.quant_stage="🔬 Validate"
+                st.success(f"{cand['name']} is marked for validation. This does not imply that the strategy is validated.")
+
+    if st.session_state.quant_runs:
+        st.divider()
+        st.markdown("### 🗂 Research Run History")
+        st.dataframe(pd.DataFrame(st.session_state.quant_runs).tail(20),use_container_width=True,hide_index=True)
+
+    if st.session_state.quant_stage == "🔬 Validate":
+        st.markdown("#### 🚀 Deployment Gate")
+        st.warning("Deployment should remain paper/demo until data assumptions, execution costs, risk limits and out-of-sample behavior have been reviewed.")
+        d1,d2=st.columns(2)
+        with d1:
+            if st.button("📝 Create EA Draft",use_container_width=True):
+                switch_page("🤖 EA / Expert Advisors")
+        with d2:
+            if st.button("📈 Review on Chart",use_container_width=True):
+                switch_page("📈 Chart Analysis")
+
+# ==========================================
+# 🧩 VIEW 6: STRATEGY BUILDER
 # ==========================================
 elif st.session_state.active_tab == "🧩 Strategy Builder":
     st.title("🧩 Strategy Builder")
