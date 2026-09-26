@@ -1,7 +1,10 @@
 from datetime import datetime, timedelta
+from pathlib import Path
 import os
 import json
 import re
+import threading
+import time
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -12,6 +15,8 @@ import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
 from tradingview_ta import Interval, TA_Handler
 import yfinance as yf
+import requests
+import websocket
 
 # --- PAGE CONFIG ---
 st.set_page_config(
@@ -60,7 +65,7 @@ def page_header(subtitle):
 
 
 # Auto-refresh session feed every 20 seconds
-st_autorefresh(interval=20000, key="ssad_feed_sync")
+st_autorefresh(interval=5000, key="ssad_feed_sync")
 
 # --- SESSION STATE INITIALIZATION ---
 if "active_tab" not in st.session_state:
@@ -80,15 +85,13 @@ if "chat_messages" not in st.session_state:
         {
             "role": "assistant",
             "content": (
-                "Hi! I'm your trading co-pilot. I can watch signals, check risk, "
-                "explain setups, and help you work through your trading plan."
+                "Hey, I'm your trading co-pilot. Ask me about the market, "
+                "chart signals, or build a strategy in the Strategies tab."
             ),
         }
     ]
 if "voice_enabled" not in st.session_state:
     st.session_state.voice_enabled = True
-if "voice_name" not in st.session_state:
-    st.session_state.voice_name = "Auto / Best available"
 if "anthropic_api_key" not in st.session_state:
     st.session_state.anthropic_api_key = ""
 if "claude_model" not in st.session_state:
@@ -239,9 +242,6 @@ st.session_state.setdefault("smtp_password", "")
 st.session_state.setdefault("alert_email", "")
 st.session_state.setdefault("persistent_monitor_enabled", False)
 st.session_state.setdefault("last_signal_snapshot", None)
-st.session_state.setdefault("auto_ea_on_signal", False)
-st.session_state.setdefault("ea_execution_mode", "PAPER")
-st.session_state.setdefault("broker_api_endpoint", "")
 
 def prop_equity():
     return float(st.session_state.account_balance + st.session_state.prop_daily_pnl)
@@ -342,9 +342,6 @@ def save_monitor_config():
         "smtp_user": st.session_state.smtp_user,
         "smtp_password": st.session_state.smtp_password,
         "alert_email": st.session_state.alert_email,
-        "auto_ea_on_signal": bool(st.session_state.auto_ea_on_signal),
-        "ea_execution_mode": st.session_state.ea_execution_mode,
-        "broker_api_endpoint": st.session_state.broker_api_endpoint,
     }
     path = Path("prop_ai_monitor_config.json")
     path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
@@ -619,6 +616,7 @@ MARKET_UNIVERSE = {
             "exchange": "OANDA",
             "screener": "forex",
             "yf": "GC=F",
+            "td": "XAU/USD",
             "pip_size": 0.1,
             "lot_units": 100,
         },
@@ -627,6 +625,7 @@ MARKET_UNIVERSE = {
             "exchange": "OANDA",
             "screener": "forex",
             "yf": "SI=F",
+            "td": "XAG/USD",
             "pip_size": 0.01,
             "lot_units": 5000,
         },
@@ -635,6 +634,7 @@ MARKET_UNIVERSE = {
             "exchange": "TVC",
             "screener": "cfd",
             "yf": "CL=F",
+            "td": "WTI/USD",
             "pip_size": 0.01,
             "lot_units": 1000,
         },
@@ -645,6 +645,7 @@ MARKET_UNIVERSE = {
             "exchange": "BINANCE",
             "screener": "crypto",
             "yf": "BTC-USD",
+            "td": "BTC/USD",
             "pip_size": 1.0,
             "lot_units": 1,
         },
@@ -653,6 +654,7 @@ MARKET_UNIVERSE = {
             "exchange": "BINANCE",
             "screener": "crypto",
             "yf": "ETH-USD",
+            "td": "ETH/USD",
             "pip_size": 0.1,
             "lot_units": 1,
         },
@@ -663,6 +665,7 @@ MARKET_UNIVERSE = {
             "exchange": "NSE",
             "screener": "india",
             "yf": "^NSEI",
+            "td": "NIFTY:NSE",
             "pip_size": 0.05,
             "lot_units": 25,
         },
@@ -671,6 +674,7 @@ MARKET_UNIVERSE = {
             "exchange": "NSE",
             "screener": "india",
             "yf": "RELIANCE.NS",
+            "td": "RELIANCE:NSE",
             "pip_size": 0.05,
             "lot_units": 250,
         },
@@ -679,6 +683,7 @@ MARKET_UNIVERSE = {
             "exchange": "NSE",
             "screener": "india",
             "yf": "HDFCBANK.NS",
+            "td": "HDFCBANK:NSE",
             "pip_size": 0.05,
             "lot_units": 550,
         },
@@ -689,6 +694,7 @@ MARKET_UNIVERSE = {
             "exchange": "NASDAQ",
             "screener": "america",
             "yf": "NVDA",
+            "td": "NVDA",
             "pip_size": 0.01,
             "lot_units": 100,
         },
@@ -697,6 +703,7 @@ MARKET_UNIVERSE = {
             "exchange": "NASDAQ",
             "screener": "america",
             "yf": "AAPL",
+            "td": "AAPL",
             "pip_size": 0.01,
             "lot_units": 100,
         },
@@ -707,6 +714,7 @@ MARKET_UNIVERSE = {
             "exchange": "FX_IDC",
             "screener": "forex",
             "yf": "EURUSD=X",
+            "td": "EUR/USD",
             "pip_size": 0.0001,
             "lot_units": 100000,
         },
@@ -715,6 +723,7 @@ MARKET_UNIVERSE = {
             "exchange": "FX_IDC",
             "screener": "forex",
             "yf": "USDINR=X",
+            "td": "USD/INR",
             "pip_size": 0.0025,
             "lot_units": 1000,
         },
@@ -736,8 +745,144 @@ def get_tv_summary(
         return None
 
 
-@st.cache_data(ttl=30)
-def load_ohlcv(ticker, period="1mo", interval="15m", fallback_price=2450.0):
+# --- TWELVE DATA LIVE MARKET LAYER ---
+TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY", "").strip()
+if not TWELVE_DATA_API_KEY:
+    try:
+        TWELVE_DATA_API_KEY = str(st.secrets.get("TWELVE_DATA_API_KEY", "")).strip()
+    except Exception:
+        TWELVE_DATA_API_KEY = ""
+TWELVE_DATA_WS_URL = "wss://ws.twelvedata.com/v1/quotes/price?apikey={}" 
+
+# Twelve Data symbols used by the live Market Pulse. TradingView remains the charting layer.
+TWELVE_DATA_SYMBOLS = {
+    "XAU/USD": "XAU/USD",
+    "BTC/USDT": "BTC/USD",
+    "NIFTY 50": "NIFTY:NSE",
+    "EUR/USD": "EUR/USD",
+}
+
+@st.cache_resource(show_spinner=False)
+def get_live_price_store():
+    store = {"prices": {}, "timestamps": {}, "status": "NOT CONFIGURED", "error": "", "thread": None}
+    if not TWELVE_DATA_API_KEY:
+        store["status"] = "API KEY REQUIRED"
+        return store
+
+    def on_message(ws, message):
+        try:
+            payload = json.loads(message)
+            if payload.get("event") == "price":
+                symbol = str(payload.get("symbol", ""))
+                price = payload.get("price")
+                if price is not None:
+                    store["prices"][symbol] = float(price)
+                    store["timestamps"][symbol] = time.time()
+                    store["status"] = "LIVE"
+            elif payload.get("event") == "subscribe-status":
+                store["status"] = "LIVE"
+        except Exception as exc:
+            store["error"] = str(exc)
+
+    def on_error(ws, error):
+        store["status"] = "RECONNECTING"
+        store["error"] = str(error)
+
+    def on_close(ws, code, msg):
+        store["status"] = "RECONNECTING"
+
+    def worker():
+        while True:
+            try:
+                ws = websocket.WebSocketApp(
+                    TWELVE_DATA_WS_URL.format(TWELVE_DATA_API_KEY),
+                    on_message=on_message,
+                    on_error=on_error,
+                    on_close=on_close,
+                )
+                def on_open(sock):
+                    sock.send(json.dumps({
+                        "action": "subscribe",
+                        "params": {"symbols": ",".join(TWELVE_DATA_SYMBOLS.values())},
+                    }))
+                    store["status"] = "LIVE"
+                ws.on_open = on_open
+                ws.run_forever(ping_interval=10, ping_timeout=5)
+            except Exception as exc:
+                store["status"] = "RECONNECTING"
+                store["error"] = str(exc)
+            time.sleep(3)
+
+    thread = threading.Thread(target=worker, daemon=True, name="twelve-data-live-feed")
+    thread.start()
+    store["thread"] = thread
+    return store
+
+
+def _td_quote(symbol):
+    """Fetch the latest quote metadata (previous close/change) for display."""
+    if not TWELVE_DATA_API_KEY:
+        return None
+    try:
+        r = requests.get(
+            "https://api.twelvedata.com/quote",
+            params={"symbol": symbol, "apikey": TWELVE_DATA_API_KEY},
+            timeout=4,
+        )
+        data = r.json()
+        if data.get("status") == "error":
+            return None
+        return data
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=20, show_spinner=False)
+def load_ohlcv_twelvedata(symbol, period="1mo", interval="15min"):
+    """Historical/intraday candles for ML and technical charts from Twelve Data."""
+    if not TWELVE_DATA_API_KEY:
+        return None
+    try:
+        # outputsize keeps the request compact; the ML layer only needs a recent window.
+        outputsize = 500
+        r = requests.get(
+            "https://api.twelvedata.com/time_series",
+            params={
+                "symbol": symbol,
+                "interval": interval,
+                "outputsize": outputsize,
+                "apikey": TWELVE_DATA_API_KEY,
+                "timezone": "Asia/Kolkata",
+            },
+            timeout=8,
+        )
+        data = r.json()
+        values = data.get("values", [])
+        if not values:
+            return None
+        df = pd.DataFrame(values)
+        df["datetime"] = pd.to_datetime(df["datetime"])
+        df = df.set_index("datetime").sort_index()
+        for col in ["open", "high", "low", "close", "volume"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+        rename = {"open":"Open", "high":"High", "low":"Low", "close":"Close", "volume":"Volume"}
+        df = df.rename(columns=rename)
+        if "Volume" not in df.columns:
+            df["Volume"] = 0.0
+        return df[["Open", "High", "Low", "Close", "Volume"]].dropna(subset=["Open","High","Low","Close"])
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def load_ohlcv(ticker, period="1mo", interval="15m", fallback_price=2450.0, td_symbol=None):
+    """Use Twelve Data candles when configured; retain yfinance as a fallback."""
+    td_interval = {"5m":"5min", "15m":"15min", "1h":"1h", "1D":"1day", "1d":"1day"}.get(interval, interval)
+    if td_symbol:
+        td_df = load_ohlcv_twelvedata(td_symbol, period=period, interval=td_interval)
+        if td_df is not None and len(td_df) >= 15:
+            return td_df
     try:
         df = yf.download(ticker, period=period, interval=interval, progress=False)
         if df is not None and not df.empty and len(df) >= 15:
@@ -746,7 +891,6 @@ def load_ohlcv(ticker, period="1mo", interval="15m", fallback_price=2450.0):
             return df.dropna()
     except Exception:
         pass
-
     try:
         df_alt = yf.download(ticker, period="1mo", interval="1d", progress=False)
         if df_alt is not None and not df_alt.empty:
@@ -755,7 +899,6 @@ def load_ohlcv(ticker, period="1mo", interval="15m", fallback_price=2450.0):
             return df_alt.dropna()
     except Exception:
         pass
-
     n = 60
     t = pd.date_range(end=pd.Timestamp.now(), periods=n, freq="15min")
     rets = np.random.normal(0.0001, 0.002, n)
@@ -764,16 +907,48 @@ def load_ohlcv(ticker, period="1mo", interval="15m", fallback_price=2450.0):
     l = c * (1 - np.abs(np.random.normal(0, 0.0015, n)))
     o = (h + l) / 2
     v = np.random.randint(2000, 8000, size=n)
-    return pd.DataFrame(
-        {"Open": o, "High": h, "Low": l, "Close": c, "Volume": v}, index=t
-    )
+    return pd.DataFrame({"Open": o, "High": h, "Low": l, "Close": c, "Volume": v}, index=t)
 
 
+def live_market_pulse():
+    store = get_live_price_store()
+    cards = []
+    configs = [
+        ("XAU/USD", "XAU/USD", "$", 2),
+        ("BTC/USDT", "BTC/USDT", "$", 2),
+        ("NIFTY 50", "NIFTY 50", "", 2),
+        ("EUR/USD", "EUR/USD", "", 4),
+    ]
+    for label, td_key, prefix, decimals in configs:
+        td_symbol = TWELVE_DATA_SYMBOLS[td_key]
+        price = store["prices"].get(td_symbol)
+        quote = _td_quote(td_symbol)
+        if price is None and quote:
+            try: price = float(quote.get("close") or quote.get("price"))
+            except Exception: price = None
+        if price is None:
+            cards.append((label, "—", "—", "amber", [1,2,1,2,1,2,1,2,1,2,1,2], "WAITING"))
+            continue
+        change = None
+        try:
+            change = float(quote.get("percent_change")) if quote else None
+        except Exception:
+            pass
+        move = f"{change:+.{2}f}%" if change is not None else "LIVE"
+        cls = "up" if (change is None or change >= 0) else "down"
+        ts = store["timestamps"].get(td_symbol, time.time())
+        age = max(0, int(time.time() - ts))
+        freshness = "LIVE" if age <= 10 else f"{age}s old"
+        cards.append((label, f"{prefix}{price:,.{decimals}f}", move, cls, [price*0.999,price*1.001,price*0.998,price*1.002,price*1.0005,price], freshness))
+    return cards, store
+
+
+live_pulse_cards, live_feed_store = live_market_pulse()
 default_cfg = MARKET_UNIVERSE["🟡 Metals & Commodities"]["Gold (XAU/USD)"]
-global_df = load_ohlcv(default_cfg["yf"])
-global_price = (
-    float(global_df["Close"].iloc[-1]) if not global_df.empty else 2468.40
-)
+gold_td_symbol = TWELVE_DATA_SYMBOLS["XAU/USD"]
+global_df = load_ohlcv(default_cfg["yf"], td_symbol=gold_td_symbol)
+global_price = float(live_pulse_cards[0][1].replace("$", "").replace(",", "")) if live_pulse_cards[0][1] != "—" else (float(global_df["Close"].iloc[-1]) if not global_df.empty else 2468.40)
+
 
 # Top Ticker Bar — persistent sliding marquee (all 5 assets, seamless loop, pauses on hover)
 st.markdown(
@@ -787,18 +962,15 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-_TICKER_ITEMS = (
-    '<span class="tk-item">🟡 XAU/USD&nbsp;<b>$2,468.40</b>&nbsp;'
-    '<span class="up">+0.84%</span></span>'
-    '<span class="tk-item">🪙 BTC/USDT&nbsp;<b>$78,820.00</b>&nbsp;'
-    '<span class="up">+2.15%</span></span>'
-    '<span class="tk-item">🇮🇳 NIFTY 50&nbsp;<b>24,310.80</b>&nbsp;'
-    '<span class="down">-0.24%</span></span>'
-    '<span class="tk-item">🇺🇸 S&amp;P 500&nbsp;<b>5,840.10</b>&nbsp;'
-    '<span class="up">+0.41%</span></span>'
-    '<span class="tk-item">💱 EUR/USD&nbsp;<b>1.0825</b>&nbsp;'
-    '<span class="down">-0.08%</span></span>'
-)
+_ticker_items_list = []
+for _label, _price, _move, _cls, _points, _freshness in live_pulse_cards:
+    _ticker_items_list.append(
+        f'<span class="tk-item">{_label}&nbsp;<b>{_price}</b>&nbsp;'
+        f'<span class="{_cls}">{_move}</span></span>'
+    )
+_TICKER_ITEMS = "".join(_ticker_items_list)
+if not _TICKER_ITEMS:
+    _TICKER_ITEMS = '<span class="tk-item">Market feed waiting for data…</span>'
 _ticker_html = f"""
 <style>
   html, body {{ margin:0; padding:0; background: transparent; overflow: hidden; }}
@@ -839,7 +1011,7 @@ with st.container(key="ssad_ticker_wrap"):
 st.markdown(
     """
     <style>
-    /* Cute glass floating co-pilot button */
+    /* Floating pill-shaped toggle button, bottom-right of the viewport */
     .st-key-ssad_bot_fab {
         position: fixed !important;
         bottom: 28px !important;
@@ -848,36 +1020,32 @@ st.markdown(
         width: auto !important;
     }
     .st-key-ssad_bot_fab button {
-        border-radius: 999px !important;
-        padding: 12px 19px !important;
-        font-size: 16px !important;
-        font-weight: 700 !important;
-        background: linear-gradient(135deg, rgba(33,35,57,0.82), rgba(89,64,126,0.66)) !important;
-        backdrop-filter: blur(18px) saturate(170%) !important;
-        -webkit-backdrop-filter: blur(18px) saturate(170%) !important;
-        border: 1px solid rgba(255,255,255,0.22) !important;
-        box-shadow: 0 12px 36px rgba(0,0,0,0.48), 0 0 24px rgba(155,120,255,0.22) !important;
+        border-radius: 30px !important;
+        padding: 14px 22px !important;
+        font-size: 17px !important;
+        font-weight: 600 !important;
+        background: linear-gradient(135deg, rgba(150,110,255,0.28), rgba(70,180,255,0.18)) !important;
+        backdrop-filter: blur(14px) saturate(160%) !important;
+        -webkit-backdrop-filter: blur(14px) saturate(160%) !important;
+        border: 1px solid rgba(140, 180, 255, 0.55) !important;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 28px rgba(120,120,255,0.18), 0 0 0 5px rgba(120,120,255,0.06) !important;
         color: #fff !important;
     }
-    .st-key-ssad_bot_fab button:hover {
-        transform: translateY(-2px) scale(1.02);
-        border-color: rgba(255,255,255,0.36) !important;
-    }
-    /* Floating translucent co-pilot shell */
+    /* Floating translucent chat panel */
     .st-key-ssad_bot_panel {
         position: fixed !important;
         bottom: 104px !important;
         right: 28px !important;
-        width: 430px !important;
-        max-height: 72vh !important;
+        width: 400px !important;
+        max-height: 68vh !important;
         overflow-y: auto !important;
         z-index: 999999 !important;
-        background: linear-gradient(160deg, rgba(13,16,29,0.76), rgba(48,34,73,0.68)) !important;
+        background: linear-gradient(160deg, rgba(20,22,36,0.58), rgba(38,27,58,0.48)) !important;
         backdrop-filter: blur(20px) saturate(150%) !important;
         -webkit-backdrop-filter: blur(20px) saturate(150%) !important;
         border: 1px solid rgba(255, 255, 255, 0.16) !important;
-        border-radius: 28px !important;
-        box-shadow: 0 18px 55px rgba(0,0,0,0.58), 0 0 35px rgba(135,105,255,0.12) !important;
+        border-radius: 22px !important;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.5) !important;
         padding: 6px 4px !important;
     }
     </style>
@@ -892,21 +1060,14 @@ if st.button(fab_label, key="ssad_bot_fab", help="Chat, signals & strategy build
 
 if st.session_state.bot_open:
     with st.container(key="ssad_bot_panel"):
-        st.markdown("### 🧸✨ Nova — Trading Co-Pilot")
-        st.caption("Your market companion · voice, signals, risk & EA-ready alerts")
-        st.markdown(
-            "<div style='display:flex;gap:7px;flex-wrap:wrap;margin:4px 0 12px 0'>"
-            "<span style='padding:5px 10px;border-radius:999px;background:rgba(80,220,150,.12);border:1px solid rgba(80,220,150,.25);font-size:12px'>● Market Watch</span>"
-            "<span style='padding:5px 10px;border-radius:999px;background:rgba(120,150,255,.12);border:1px solid rgba(120,150,255,.25);font-size:12px'>✦ Signal Engine</span>"
-            "<span style='padding:5px 10px;border-radius:999px;background:rgba(255,190,90,.12);border:1px solid rgba(255,190,90,.25);font-size:12px'>🛡 Risk Guard</span>"
-            "</div>", unsafe_allow_html=True
-        )
-        bot_tab, bot_tab_signals, bot_tab_guardian, bot_tab_set = st.tabs(
-            ["💬 Talk", "📡 Live Signals", "🛡️ Risk Guardian", "⚙️ Settings"]
+        st.markdown("##### 🧸✨ AI Trading Co-Pilot")
+        st.caption("Persistent market watcher · signal + risk guardian")
+        bot_tab_chat, bot_tab_signals, bot_tab_guardian, bot_tab_set = st.tabs(
+            ["💬 Chat", "📡 Signals", "🛡️ Guardian", "⚙️"]
         )
 
         # ---------------- CHAT TAB (text + voice) ----------------
-        with bot_tab:
+        with bot_tab_chat:
             for msg in st.session_state.chat_messages[-30:]:
                 with st.chat_message(msg["role"]):
                     st.write(msg["content"])
@@ -925,29 +1086,14 @@ if st.session_state.bot_open:
                     .replace("\n", " ")
                     .replace('"', "'")
                 )
-                voice_name = st.session_state.get("voice_name", "Auto / Best available")
-                safe_voice_name = voice_name.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${").replace('"', '\\"')
                 components.html(
                     f"""
                     <script>
                     try {{
-                        const text = "{speak_text[:600]}";
-                        const preferred = "{safe_voice_name}";
-                        const speak = () => {{
-                            const voices = window.parent.speechSynthesis.getVoices();
-                            const preferredVoice = preferred !== "Auto / Best available"
-                                ? voices.find(v => v.name === preferred)
-                                : (voices.find(v => /Samantha|Ava|Jenny|Zira|Google US English/i.test(v.name)) || voices.find(v => /^en[-_]/i.test(v.lang)) || voices[0]);
-                            const u = new SpeechSynthesisUtterance(text);
-                            if (preferredVoice) u.voice = preferredVoice;
-                            u.rate = 0.96;
-                            u.pitch = 1.02;
-                            u.volume = 1.0;
-                            window.parent.speechSynthesis.cancel();
-                            window.parent.speechSynthesis.speak(u);
-                        }};
-                        if (window.parent.speechSynthesis.getVoices().length) speak();
-                        else window.parent.speechSynthesis.onvoiceschanged = speak;
+                        const u = new SpeechSynthesisUtterance("{speak_text[:600]}");
+                        u.rate = 1.0;
+                        window.parent.speechSynthesis.cancel();
+                        window.parent.speechSynthesis.speak(u);
                     }} catch (e) {{}}
                     </script>
                     """,
@@ -1051,7 +1197,7 @@ if st.session_state.bot_open:
                     f"Z-Score {z:.2f}, Volume Surge {vol_surge:.2f}x. "
                     f"Rule-based call: {call}."
                 )
-                if st.button("Ask Nova to interpret this signal", key="ssad_sig_ask"):
+                if st.button("Ask Claude to interpret this signal", key="ssad_sig_ask"):
                     send_chat_message(
                         "Interpret the current chart signal and suggest what to watch for next.",
                         context_summary=sig_context,
@@ -1113,22 +1259,11 @@ if st.session_state.bot_open:
                 type="password",
             )
             st.session_state.claude_model = st.text_input(
-                "AI model (Anthropic/Claude backend)", value=st.session_state.claude_model
+                "Claude model", value=st.session_state.claude_model
             )
             st.session_state.voice_enabled = st.checkbox(
-                "🔊 Speak replies out loud", value=st.session_state.voice_enabled
+                "Speak replies out loud", value=st.session_state.voice_enabled
             )
-            voice_options = ["Auto / Best available"]
-            voice_options += [
-                "Samantha", "Ava", "Jenny", "Microsoft Zira", "Google US English"
-            ]
-            current_voice = st.session_state.get("voice_name", "Auto / Best available")
-            selected_voice = st.selectbox(
-                "Co-Pilot voice", voice_options,
-                index=voice_options.index(current_voice) if current_voice in voice_options else 0,
-                help="Uses the voices installed in your browser/operating system. Exact availability varies by device."
-            )
-            st.session_state.voice_name = selected_voice
             st.caption(
                 "Voice input/output uses your browser's built-in speech engine "
                 "(Chrome/Edge work best) — no extra key needed for that part."
@@ -1152,21 +1287,6 @@ if st.session_state.bot_open:
             st.session_state.alert_email = st.text_input(
                 "Alert Email", value=st.session_state.alert_email
             )
-            st.markdown("#### 🤖 EA Auto-Execution")
-            st.session_state.auto_ea_on_signal = st.toggle(
-                "Automatically let the EA act on approved signals",
-                value=st.session_state.auto_ea_on_signal,
-            )
-            st.session_state.ea_execution_mode = st.selectbox(
-                "EA Execution Mode", ["PAPER", "LIVE"],
-                index=0 if st.session_state.ea_execution_mode == "PAPER" else 1,
-            )
-            st.session_state.broker_api_endpoint = st.text_input(
-                "Broker execution webhook (LIVE only)",
-                value=st.session_state.broker_api_endpoint,
-                placeholder="https://your-broker-bridge.example/order",
-            )
-            st.caption("PAPER records simulated EA trades. LIVE sends an authenticated order payload to your configured broker/bridge endpoint.")
             if st.button("💾 Save Persistent Monitor Config", key="save_monitor_cfg"):
                 cfg_path = save_monitor_config()
                 st.success(f"Saved monitor configuration to {cfg_path}.")
@@ -1200,10 +1320,16 @@ if st.session_state.active_tab == '📊 Dashboard':
     st.markdown(hero_html, unsafe_allow_html=True)
     st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
     st.markdown('<div class="ssad-section-title">Market Pulse</div>', unsafe_allow_html=True)
-    market_cards=[('XAU/USD','$2,468.40','+0.84%','up',[44,48,42,52,49,58,55,67,64,76,72,82]),('BTC/USDT','$78,820','+2.15%','up',[45,38,51,48,60,54,68,62,74,69,83,88]),('NIFTY 50','24,310.80','-0.24%','down',[76,72,78,70,74,66,68,60,62,54,57,49]),('EUR/USD','1.0825','-0.08%','down',[68,73,67,70,63,66,58,61,55,59,51,53])]
     mc=st.columns(4,gap='medium')
-    for col,(label,price,move,cls,points) in zip(mc,market_cards):
-        with col: st.markdown(f'<div class="ssad-market-card"><div class="label">{label}</div><div class="price">{price}</div><div class="move {cls}">{move} <span style="color:#657084;font-weight:500">today</span></div>{sparkline_svg(points,"#39e58c" if cls=="up" else "#ff5c68","rgba(57,229,140,.09)" if cls=="up" else "rgba(255,92,104,.08)")}</div>',unsafe_allow_html=True)
+    for col,(label,price,move,cls,points,freshness) in zip(mc,live_pulse_cards):
+        with col:
+            badge = "<span style=\"color:#39e58c;font-weight:800;font-size:.62rem;margin-left:6px\">● LIVE</span>" if freshness == "LIVE" else f"<span style=\"color:#f6c85f;font-weight:800;font-size:.62rem;margin-left:6px\">● {freshness}</span>"
+            st.markdown(f'<div class="ssad-market-card"><div class="label">{label}{badge}</div><div class="price">{price}</div><div class="move {cls}">{move} <span style="color:#657084;font-weight:500">today</span></div>{sparkline_svg(points,"#39e58c" if cls=="up" else "#ff5c68","rgba(57,229,140,.09)" if cls=="up" else "rgba(255,92,104,.08)")}</div>',unsafe_allow_html=True)
+    if live_feed_store.get("status") != "LIVE":
+        if not TWELVE_DATA_API_KEY:
+            st.warning("Live Market Pulse is not configured. Add TWELVE_DATA_API_KEY to the deployment secrets/environment.")
+        else:
+            st.caption(f"Twelve Data feed status: {live_feed_store.get('status')} — falling back to the latest available quote/candle where necessary.")
     st.markdown('<div style="height:16px"></div>',unsafe_allow_html=True)
     st.markdown('<div class="ssad-section-title">Workspace</div>',unsafe_allow_html=True)
     actions=[('chart','Chart Analysis','Candlesticks, indicators, anomaly zones and direct execution controls.','Open Charts →','📈 Chart Analysis'),('risk','Pip & Risk Engine','Position sizing, risk-to-reward and exposure planning before execution.','Open Calculator →','🧮 Pip & Risk Calculator'),('broker','Broker Gateway','Connection layer for paper trading and supported broker/API bridges.','Open Gateway →','⚡ Broker Gateway'),('calendar','Economic Calendar','High-impact macro events with forecast, actual and previous values.','View Calendar →','📅 Economic Calendar'),('ai','AI Co-Pilot','Market context, strategy assistance, saved EAs and voice interaction.','Open Co-Pilot →','BOT'),('quant','Quant Lab','Idea → build → backtest → validate → deploy workflow for systematic research.','Open Quant Lab →','🧪 Quant Lab')]
@@ -1290,7 +1416,7 @@ elif st.session_state.active_tab == "📈 Chart Analysis":
 
         # --- PROFESSIONAL TECHNICAL CHART ---
         st.markdown("### 📊 Technical Chart & Signal Workspace")
-        chart_df = load_ohlcv(inst_cfg["yf"], period="1mo", interval=chart_res)
+        chart_df = load_ohlcv(inst_cfg["yf"], period="1mo", interval=chart_res, td_symbol=inst_cfg.get("td"))
         if chart_df is not None and len(chart_df) >= 30:
             ind_fast, ind_slow = st.columns(2)
             with ind_fast:
@@ -1391,7 +1517,7 @@ elif st.session_state.active_tab == "📈 Chart Analysis":
                 st.caption("EA execution remains subject to the configured risk and broker connection.")
 
     with tab_quant:
-        active_df = load_ohlcv(inst_cfg["yf"])
+        active_df = load_ohlcv(inst_cfg["yf"], td_symbol=inst_cfg.get("td"))
         if active_df is not None and len(active_df) >= 20:
             active_df["returns"] = active_df["Close"].pct_change()
             active_df["rolling_vol"] = active_df["returns"].rolling(14).std()
@@ -1642,7 +1768,7 @@ elif st.session_state.active_tab == "🧪 Quant Lab":
         else:
             cfg = next((group[q_asset] for group in MARKET_UNIVERSE.values() if q_asset in group), None)
             if cfg:
-                qdf = load_ohlcv(cfg["yf"], period=q_period, interval=q_tf)
+                qdf = load_ohlcv(cfg["yf"], period=q_period, interval=q_tf, td_symbol=cfg.get("td"))
                 result = run_strategy_backtest(qdf, q_fast, q_slow, q_risk, 2.0)
                 if result:
                     st.session_state.last_backtest = result
@@ -1779,7 +1905,7 @@ elif st.session_state.active_tab == "🧩 Strategy Builder":
     if run_bt:
         bt_cfg = next((group[bt_asset] for group in MARKET_UNIVERSE.values() if bt_asset in group), None)
         if bt_cfg:
-            bt_df = load_ohlcv(bt_cfg["yf"], period=bt_period, interval=bt_tf)
+            bt_df = load_ohlcv(bt_cfg["yf"], period=bt_period, interval=bt_tf, td_symbol=bt_cfg.get("td"))
             result = run_strategy_backtest(bt_df, fast_param, slow_param, risk_param, rr_param)
             if result:
                 st.session_state.last_backtest = result
@@ -2124,7 +2250,7 @@ elif st.session_state.active_tab == "⚙️ Settings":
     st.title("⚙️ Smart Session Anomaly Detector | Settings")
     st.write("Platform: Smart Session Anomaly Detector Suite")
     st.write("Architecture: Python Quant Pipeline + Isolation Forest ML")
-    st.write("Data Stream Latency: 20 Seconds Auto-Sync")
+    st.write("Data Stream: Twelve Data WebSocket live prices + 5s UI refresh")
     st.selectbox("Base Currency", ["USD ($)", "INR (₹)", "EUR (€)"])
     st.divider()
     st.markdown("#### 🧩 Platform Modules")
