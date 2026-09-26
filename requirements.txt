@@ -1,8 +1,10 @@
-numpy
-pandas
-scikit-learn
 streamlit
+pandas
+numpy
 plotly
+scikit-learn
 yfinance
-tradingview-ta
+requests
+websocket-client
 streamlit-autorefresh
+tradingview-ta
