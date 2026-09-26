@@ -756,10 +756,15 @@ TWELVE_DATA_WS_URL = "wss://ws.twelvedata.com/v1/quotes/price?apikey={}"
 
 # Twelve Data symbols used by the live Market Pulse. TradingView remains the charting layer.
 TWELVE_DATA_SYMBOLS = {
-    "XAU/USD": "XAU/USD",
-    "BTC/USDT": "BTC/USD",
-    "NIFTY 50": "NIFTY:NSE",
+    # Free Basic-plan live/test universe: US equities, forex and crypto.
+    "AAPL": "AAPL",
+    "NVDA": "NVDA",
+    "MSFT": "MSFT",
+    "TSLA": "TSLA",
+    "BTC/USD": "BTC/USD",
+    "ETH/USD": "ETH/USD",
     "EUR/USD": "EUR/USD",
+    "USD/JPY": "USD/JPY",
 }
 
 @st.cache_resource(show_spinner=False)
@@ -914,9 +919,9 @@ def live_market_pulse():
     store = get_live_price_store()
     cards = []
     configs = [
-        ("XAU/USD", "XAU/USD", "$", 2),
-        ("BTC/USDT", "BTC/USDT", "$", 2),
-        ("NIFTY 50", "NIFTY 50", "", 2),
+        ("AAPL", "AAPL", "$", 2),
+        ("NVDA", "NVDA", "$", 2),
+        ("BTC/USD", "BTC/USD", "$", 2),
         ("EUR/USD", "EUR/USD", "", 4),
     ]
     for label, td_key, prefix, decimals in configs:
@@ -944,10 +949,11 @@ def live_market_pulse():
 
 
 live_pulse_cards, live_feed_store = live_market_pulse()
-default_cfg = MARKET_UNIVERSE["🟡 Metals & Commodities"]["Gold (XAU/USD)"]
-gold_td_symbol = TWELVE_DATA_SYMBOLS["XAU/USD"]
-global_df = load_ohlcv(default_cfg["yf"], td_symbol=gold_td_symbol)
-global_price = float(live_pulse_cards[0][1].replace("$", "").replace(",", "")) if live_pulse_cards[0][1] != "—" else (float(global_df["Close"].iloc[-1]) if not global_df.empty else 2468.40)
+# Default live research instrument now uses free-tier US equity coverage.
+default_cfg = MARKET_UNIVERSE["🇺🇸 US Equities"]["Apple (AAPL)"]
+default_td_symbol = TWELVE_DATA_SYMBOLS["AAPL"]
+global_df = load_ohlcv(default_cfg["yf"], td_symbol=default_td_symbol)
+global_price = float(live_pulse_cards[0][1].replace("$", "").replace(",", "")) if live_pulse_cards[0][1] != "—" else (float(global_df["Close"].iloc[-1]) if not global_df.empty else 200.0)
 
 
 # Top Ticker Bar — persistent sliding marquee (all 5 assets, seamless loop, pauses on hover)
