@@ -638,7 +638,7 @@ if st.session_state.active_tab == "📊 Dashboard":
     m3.metric("Terminal Capital", f"${st.session_state.account_balance:,.0f}")
     m4.metric(
         "Broker Status",
-        "Online" if st.session_state.broker_connected else "Demo Mode",
+        "Online" if st.session_state.broker_connected else "Not Connected",
     )
 
     st.markdown("### Quick Actions")
@@ -982,7 +982,7 @@ elif st.session_state.active_tab == "⚡ Broker Gateway":
                     "Bridge": (
                         "MT5/REST"
                         if st.session_state.broker_connected
-                        else "Demo Simulated"
+                        else "Not Connected"
                     ),
                 },
             )
@@ -1000,7 +1000,7 @@ elif st.session_state.active_tab == "⚡ Broker Gateway":
                     "Bridge": (
                         "MT5/REST"
                         if st.session_state.broker_connected
-                        else "Demo Simulated"
+                        else "Not Connected"
                     ),
                 },
             )
