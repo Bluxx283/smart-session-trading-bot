@@ -632,16 +632,6 @@ if st.session_state.active_tab == "📊 Dashboard":
     st.title("Smart Session Anomaly Detector")
     st.caption("Multi-Asset Quantitative Intelligence & Risk Framework")
 
-    st.markdown("### Market Pulse")
-    for _ptitle, _pkind in [("🪙 Crypto", "crypto"), ("💱 Forex", "forex"), ("📈 US Markets", "stocks")]:
-        st.markdown(f"#### {_ptitle}")
-        _items = [r for r in _pulse_rows if r["kind"] == _pkind][:4]
-        _pcols = st.columns(4)
-        for _i, _r in enumerate(_items):
-            with _pcols[_i]:
-                _status = "🟢 LIVE" if _pkind in {"crypto", "forex"} else "⚪ CLOSED"
-                st.markdown(f"<div style='padding:12px;border:1px solid rgba(255,255,255,.09);border-radius:12px;background:rgba(255,255,255,.035);min-height:100px;'><div style='font-weight:700;'>{_r['icon']} {_r['name']}</div><div style='font-size:11px;opacity:.65;margin:4px 0;'>{_status}</div><div style='font-size:19px;font-weight:700;'>{fmt_price(_r['price'], _r['name'])}</div><div style='font-size:12px;font-weight:700;'>{fmt_change(_r['pct'])}</div></div>", unsafe_allow_html=True)
-
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Open Positions", f"{len(st.session_state.positions)} Active")
     m2.metric("Anomaly Model Accuracy", "95.4%")
