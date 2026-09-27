@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time as dtime
 from collections import deque
 import os
 import json
@@ -115,6 +115,63 @@ def _finnhub_ws_worker(api_key, symbols):
         except Exception:
             time.sleep(5)
             continue
+
+
+# ------------------------------------------------------------
+# Market-hours engine — is this asset's market actually open?
+# ------------------------------------------------------------
+def _is_forex_open(now_utc):
+    """Forex/OTC gold: open Sun 21:00 UTC through Fri 21:00 UTC."""
+    wd = now_utc.weekday()  # Mon=0 ... Sun=6
+    t = now_utc.time()
+    if wd == 5:  # Saturday: closed all day
+        return False
+    if wd == 6:  # Sunday: opens at 21:00 UTC
+        return t >= dtime(21, 0)
+    if wd == 4:  # Friday: closes at 21:00 UTC
+        return t < dtime(21, 0)
+    return True
+
+
+def _is_nse_open(now_utc):
+    """NSE (India): Mon-Fri, 09:15-15:30 IST (UTC+5:30)."""
+    ist = now_utc + timedelta(hours=5, minutes=30)
+    if ist.weekday() >= 5:
+        return False
+    return dtime(9, 15) <= ist.time() <= dtime(15, 30)
+
+
+def _is_us_equity_open(now_utc):
+    """US equities: Mon-Fri, 09:30-16:00 ET. Approximated as UTC-5 (no DST)."""
+    et = now_utc - timedelta(hours=5)
+    if et.weekday() >= 5:
+        return False
+    return dtime(9, 30) <= et.time() <= dtime(16, 0)
+
+
+def market_is_open(category):
+    now_utc = datetime.utcnow()
+    if category == "crypto":
+        return True
+    if category == "forex":
+        return _is_forex_open(now_utc)
+    if category == "nse":
+        return _is_nse_open(now_utc)
+    if category == "us_equity":
+        return _is_us_equity_open(now_utc)
+    return True
+
+
+def status_badge(category):
+    """Green OPEN / grey CLOSED badge based on real market hours for this asset."""
+    color = "#39e58c" if market_is_open(category) else "#8792a5"
+    label = "OPEN" if market_is_open(category) else "CLOSED"
+    title = "Market is open" if market_is_open(category) else "Market is closed"
+    return (
+        f'<span style="font-size:9px;margin-left:6px;letter-spacing:.2px" title="{title}">'
+        f'<span style="color:{color};font-size:6px;vertical-align:middle">●</span>'
+        f'<span style="color:{color};font-weight:700"> {label}</span></span>'
+    )
 
 
 @st.cache_resource(show_spinner=False)
@@ -921,15 +978,10 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-def _fmt_ticker_item(icon, label, price_str, pct, is_live):
+def _fmt_ticker_item(icon, label, price_str, pct, category):
     cls = "up" if pct >= 0 else "down"
-    dot = (
-        ' <span style="color:#39e58c;font-size:9px" title="Live via WebSocket">●&nbsp;LIVE</span>'
-        if is_live else
-        ' <span style="color:#8792a5;font-size:9px" title="Polled, not streamed">DELAYED</span>'
-    )
     return (
-        f'<span class="tk-item">{icon} {label}{dot}&nbsp;<b>{price_str}</b>&nbsp;'
+        f'<span class="tk-item">{icon} {label}{status_badge(category)}&nbsp;<b>{price_str}</b>&nbsp;'
         f'<span class="{cls}">{pct:+.2f}%</span></span>'
     )
 
@@ -939,39 +991,39 @@ def _ticker_snapshot():
 
     btc = get_live("BTCUSDT")
     if btc:
-        items.append(_fmt_ticker_item("🪙", "BTC/USDT", f"${btc['price']:,.2f}", btc["pct"], True))
+        items.append(_fmt_ticker_item("🪙", "BTC/USDT", f"${btc['price']:,.2f}", btc["pct"], "crypto"))
 
     eth = get_live("ETHUSDT")
     if eth:
-        items.append(_fmt_ticker_item("Ξ", "ETH/USDT", f"${eth['price']:,.2f}", eth["pct"], True))
+        items.append(_fmt_ticker_item("Ξ", "ETH/USDT", f"${eth['price']:,.2f}", eth["pct"], "crypto"))
 
     gold = get_live("OANDA:XAU_USD")
     if gold:
-        items.append(_fmt_ticker_item("🟡", "XAU/USD", f"${gold['price']:,.2f}", gold["pct"], True))
+        items.append(_fmt_ticker_item("🟡", "XAU/USD", f"${gold['price']:,.2f}", gold["pct"], "forex"))
     elif not global_df.empty:
         gp = float(global_df["Close"].iloc[-1])
         gpp = float(global_df["Close"].iloc[-2]) if len(global_df) > 1 else gp
-        items.append(_fmt_ticker_item("🟡", "XAU/USD", f"${gp:,.2f}", (gp - gpp) / gpp * 100 if gpp else 0.0, False))
+        items.append(_fmt_ticker_item("🟡", "XAU/USD", f"${gp:,.2f}", (gp - gpp) / gpp * 100 if gpp else 0.0, "forex"))
 
     eur = get_live("OANDA:EUR_USD")
     if eur:
-        items.append(_fmt_ticker_item("💱", "EUR/USD", f"{eur['price']:.4f}", eur["pct"], True))
+        items.append(_fmt_ticker_item("💱", "EUR/USD", f"{eur['price']:.4f}", eur["pct"], "forex"))
     else:
         eur_df = load_ohlcv("EURUSD=X", period="5d", interval="15m")
         if not eur_df.empty:
             ep = float(eur_df["Close"].iloc[-1])
             epp = float(eur_df["Close"].iloc[-2]) if len(eur_df) > 1 else ep
-            items.append(_fmt_ticker_item("💱", "EUR/USD", f"{ep:.4f}", (ep - epp) / epp * 100 if epp else 0.0, False))
+            items.append(_fmt_ticker_item("💱", "EUR/USD", f"{ep:.4f}", (ep - epp) / epp * 100 if epp else 0.0, "forex"))
 
     nifty_df = load_ohlcv("^NSEI", period="5d", interval="15m")
     if not nifty_df.empty:
         np_ = float(nifty_df["Close"].iloc[-1])
         npp = float(nifty_df["Close"].iloc[-2]) if len(nifty_df) > 1 else np_
-        items.append(_fmt_ticker_item("🇮🇳", "NIFTY 50", f"{np_:,.2f}", (np_ - npp) / npp * 100 if npp else 0.0, False))
+        items.append(_fmt_ticker_item("🇮🇳", "NIFTY 50", f"{np_:,.2f}", (np_ - npp) / npp * 100 if npp else 0.0, "nse"))
 
     aapl = get_live("AAPL")
     if aapl:
-        items.append(_fmt_ticker_item("🇺🇸", "AAPL", f"${aapl['price']:,.2f}", aapl["pct"], True))
+        items.append(_fmt_ticker_item("🇺🇸", "AAPL", f"${aapl['price']:,.2f}", aapl["pct"], "us_equity"))
 
     return "".join(items) if items else "<span class='tk-item'>Connecting to live feed…</span>"
 
@@ -1331,8 +1383,14 @@ if st.session_state.bot_open:
             _gold_status = get_live("OANDA:XAU_USD")
             _btc_status = get_live("BTCUSDT")
             fs1, fs2 = st.columns(2)
-            fs1.metric("BTC/USDT feed", "🟢 LIVE" if _btc_status else "⏳ Connecting")
-            fs2.metric("XAU/USD feed", "🟢 LIVE" if _gold_status else ("⏳ Connecting" if st.session_state.finnhub_api_key else "⚪ No key"))
+            fs1.metric("BTC/USDT WebSocket", "🟢 Connected" if _btc_status else "⏳ Connecting")
+            fs2.metric("XAU/USD WebSocket", "🟢 Connected" if _gold_status else ("⏳ Connecting" if st.session_state.finnhub_api_key else "⚪ No key"))
+            st.caption(
+                "The ● OPEN / ● CLOSED badges next to each instrument reflect that "
+                "market's real trading hours, not the WebSocket connection above — "
+                "gold/forex trade nearly 24/5, crypto trades 24/7, and NIFTY/US "
+                "stocks only trade during their exchange session."
+            )
 
             st.divider()
             st.markdown("#### 🔔 Persistent Alerts")
@@ -1401,37 +1459,47 @@ if st.session_state.active_tab == '📊 Dashboard':
     st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
     st.markdown('<div class="ssad-section-title">Market Pulse</div>', unsafe_allow_html=True)
 
-    def _card_live(symbol, label, small=False):
+    def _card_live(symbol, label, category, small=False, no_currency=False):
         d = get_live(symbol)
         hist = d["history"] if d and len(d["history"]) >= 2 else [d["price"], d["price"]] if d else [1, 1]
-        price_str = f"{d['price']:,.4f}" if small else f"${d['price']:,.2f}"
-        return (label, price_str, f"{d['pct']:+.2f}%", "up" if d["pct"] >= 0 else "down", hist, True)
+        if no_currency:
+            price_str = f"{d['price']:,.2f}"
+        else:
+            price_str = f"{d['price']:,.4f}" if small else f"${d['price']:,.2f}"
+        return (label, price_str, f"{d['pct']:+.2f}%", "up" if d["pct"] >= 0 else "down", hist, category)
 
-    def _card_delayed(label, yf_ticker, small=False):
+    def _card_delayed(label, yf_ticker, category, small=False, no_currency=False):
         df = load_ohlcv(yf_ticker, period="5d", interval="15m")
         if df.empty or len(df) < 2:
-            return (label, "—", "0.00%", "up", [1, 1], False)
+            return (label, "—", "0.00%", "up", [1, 1], category)
         closes = df["Close"].tail(12).tolist()
         last, prev = closes[-1], closes[0]
         pct = (last - prev) / prev * 100 if prev else 0.0
-        price_str = f"{last:,.4f}" if small else f"${last:,.2f}"
-        return (label, price_str, f"{pct:+.2f}%", "up" if pct >= 0 else "down", closes, False)
+        if no_currency:
+            price_str = f"{last:,.2f}"
+        else:
+            price_str = f"{last:,.4f}" if small else f"${last:,.2f}"
+        return (label, price_str, f"{pct:+.2f}%", "up" if pct >= 0 else "down", closes, category)
 
     market_cards = []
-    market_cards.append(_card_live("OANDA:XAU_USD", "XAU/USD") if get_live("OANDA:XAU_USD") else _card_delayed("XAU/USD", default_cfg["yf"]))
-    market_cards.append(_card_live("BTCUSDT", "BTC/USDT") if get_live("BTCUSDT") else _card_delayed("BTC/USDT", "BTC-USD"))
-    market_cards.append(_card_delayed("NIFTY 50", "^NSEI"))
-    market_cards.append(_card_live("OANDA:EUR_USD", "EUR/USD", small=True) if get_live("OANDA:EUR_USD") else _card_delayed("EUR/USD", "EURUSD=X", small=True))
+    market_cards.append(
+        _card_live("OANDA:XAU_USD", "XAU/USD", "forex") if get_live("OANDA:XAU_USD")
+        else _card_delayed("XAU/USD", default_cfg["yf"], "forex")
+    )
+    market_cards.append(
+        _card_live("BTCUSDT", "BTC/USDT", "crypto") if get_live("BTCUSDT")
+        else _card_delayed("BTC/USDT", "BTC-USD", "crypto")
+    )
+    market_cards.append(_card_delayed("NIFTY 50", "^NSEI", "nse", no_currency=True))
+    market_cards.append(
+        _card_live("OANDA:EUR_USD", "EUR/USD", "forex", small=True) if get_live("OANDA:EUR_USD")
+        else _card_delayed("EUR/USD", "EURUSD=X", "forex", small=True)
+    )
 
     mc=st.columns(4,gap='medium')
-    for col,(label,price,move,cls,points,is_live) in zip(mc,market_cards):
+    for col,(label,price,move,cls,points,category) in zip(mc,market_cards):
         with col:
-            badge = (
-                '<span style="color:#39e58c;font-size:9px;margin-left:6px" title="Live via WebSocket">● LIVE</span>'
-                if is_live else
-                '<span style="color:#8792a5;font-size:9px;margin-left:6px" title="Polled, not streamed">DELAYED</span>'
-            )
-            st.markdown(f'<div class="ssad-market-card"><div class="label">{label}{badge}</div><div class="price">{price}</div><div class="move {cls}">{move} <span style="color:#657084;font-weight:500">today</span></div>{sparkline_svg(points,"#39e58c" if cls=="up" else "#ff5c68","rgba(57,229,140,.09)" if cls=="up" else "rgba(255,92,104,.08)")}</div>',unsafe_allow_html=True)
+            st.markdown(f'<div class="ssad-market-card"><div class="label">{label}{status_badge(category)}</div><div class="price">{price}</div><div class="move {cls}">{move}</div>{sparkline_svg(points,"#39e58c" if cls=="up" else "#ff5c68","rgba(57,229,140,.09)" if cls=="up" else "rgba(255,92,104,.08)")}</div>',unsafe_allow_html=True)
     st.markdown('<div style="height:16px"></div>',unsafe_allow_html=True)
     st.markdown('<div class="ssad-section-title">Workspace</div>',unsafe_allow_html=True)
     actions=[('chart','Chart Analysis','Candlesticks, indicators, anomaly zones and direct execution controls.','Open Charts →','📈 Chart Analysis'),('risk','Pip & Risk Engine','Position sizing, risk-to-reward and exposure planning before execution.','Open Calculator →','🧮 Pip & Risk Calculator'),('broker','Broker Gateway','Connection layer for paper trading and supported broker/API bridges.','Open Gateway →','⚡ Broker Gateway'),('calendar','Economic Calendar','High-impact macro events with forecast, actual and previous values.','View Calendar →','📅 Economic Calendar'),('ai','AI Co-Pilot','Market context, strategy assistance, saved EAs and voice interaction.','Open Co-Pilot →','BOT'),('quant','Quant Lab','Idea → build → backtest → validate → deploy workflow for systematic research.','Open Quant Lab →','🧪 Quant Lab')]
@@ -1456,7 +1524,7 @@ if st.session_state.active_tab == '📊 Dashboard':
         st.markdown('<div class="ssad-section-title">Session Snapshot</div>',unsafe_allow_html=True)
         for k,v,cls in [('Anomaly Engine','Monitoring','green'),('EA Deployments',str(len(st.session_state.ea_deployments)),'blue'),('Saved Strategies',str(len(st.session_state.strategy_library)),'amber'),('Broker Mode',st.session_state.broker_api_mode,'blue')]:
             st.markdown(f'<div class="ssad-status-card" style="margin-bottom:10px"><div class="k">{k}</div><div class="v">{v}</div><span class="ssad-badge {cls}">● ACTIVE</span></div>',unsafe_allow_html=True)
-    st.markdown('<div class="ssad-footer-note">🟢 LIVE badges stream in real time over WebSocket (Binance for crypto; Finnhub for gold/forex/stocks once a free key is added in Settings). DELAYED badges are polled market data, refreshed every few seconds. Execution remains paper/demo until a broker bridge is configured.</div>',unsafe_allow_html=True)
+    st.markdown('<div class="ssad-footer-note">● OPEN / ● CLOSED badges reflect each instrument\'s real trading hours. Prices for BTC/ETH stream live over WebSocket (Binance); gold/forex/stocks stream live once a free Finnhub key is added in Settings, otherwise they show the latest polled price. Execution remains paper/demo until a broker bridge is configured.</div>',unsafe_allow_html=True)
 
 # ==========================================
 # 📈 VIEW 2: CHART ANALYSIS
