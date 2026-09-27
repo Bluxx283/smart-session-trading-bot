@@ -227,6 +227,49 @@ st.markdown(
     .ssad-section-title{font-size:1.02rem;font-weight:800;margin:8px 0 10px;color:#e9edf5}.ssad-action-card{min-height:205px;position:relative;overflow:hidden;padding:20px;border-radius:18px;border:1px solid var(--line);background:linear-gradient(145deg,rgba(19,24,37,.92),rgba(8,11,18,.92));transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}.ssad-action-card:hover{transform:translateY(-3px);border-color:rgba(104,168,255,.32);box-shadow:0 18px 45px rgba(0,0,0,.32)}.ssad-action-card .art{height:55px;margin-bottom:10px}.ssad-action-card h3{margin:0 0 6px;font-size:1.05rem}.ssad-action-card p{color:#8e97a9;font-size:.78rem;line-height:1.5;min-height:42px}
     .ssad-status-card{border:1px solid var(--line);border-radius:17px;padding:17px 18px;background:rgba(12,16,26,.76)}.ssad-status-card .k{color:#788398;font-size:.7rem;text-transform:uppercase;letter-spacing:1px;font-weight:800}.ssad-status-card .v{font-size:1.2rem;font-weight:800;margin-top:6px}.ssad-feed{padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:space-between;gap:10px}.ssad-feed:last-child{border-bottom:0}.ssad-feed .symbol{font-weight:800}.ssad-feed .meta{color:#7f899b;font-size:.73rem}.ssad-badge{display:inline-flex;align-items:center;gap:5px;padding:5px 8px;border-radius:7px;font-size:.68rem;font-weight:800;border:1px solid rgba(255,255,255,.08)}.ssad-badge.green{color:#5cf0a1;background:rgba(57,229,140,.08)}.ssad-badge.amber{color:#ffd36e;background:rgba(246,200,95,.08)}.ssad-badge.blue{color:#8dbbff;background:rgba(104,168,255,.08)}.ssad-footer-note{color:#667084;font-size:.68rem;margin-top:14px}
     .stButton>button{border-radius:10px!important;border:1px solid rgba(255,255,255,.10)!important;background:rgba(255,255,255,.045)!important;color:#e8ecf4!important;font-weight:700!important}.stButton>button:hover{border-color:rgba(104,168,255,.38)!important;background:rgba(104,168,255,.09)!important}
+    /* Compact dashboard hero + floating market strip */
+    .ssad-floating-viewport{position:relative;overflow:hidden;margin:2px 0 18px;padding:2px 0 7px;}
+    .ssad-floating-viewport:before,.ssad-floating-viewport:after{content:"";position:absolute;top:0;bottom:7px;width:72px;z-index:3;pointer-events:none;}
+    .ssad-floating-viewport:before{left:0;background:linear-gradient(90deg,#070a11,transparent);}
+    .ssad-floating-viewport:after{right:0;background:linear-gradient(270deg,#070a11,transparent);}
+    .ssad-floating-track{display:flex;width:max-content;gap:10px;animation:ssadMarketMarquee 34s linear infinite;}
+    .ssad-floating-viewport:hover .ssad-floating-track{animation-play-state:paused;}
+    .ssad-floating-market{position:relative;flex:0 0 154px;min-width:154px;padding:11px 13px 12px;border:1px solid rgba(104,168,255,.18);border-radius:15px;background:linear-gradient(145deg,rgba(18,27,43,.88),rgba(8,12,21,.88));box-shadow:0 10px 28px rgba(0,0,0,.20),inset 0 1px 0 rgba(255,255,255,.03);backdrop-filter:blur(12px);transition:transform .18s ease,border-color .18s ease;}
+    .ssad-floating-market:hover{transform:translateY(-3px);border-color:rgba(104,168,255,.38);}
+    @keyframes ssadMarketMarquee{from{transform:translateX(0)}to{transform:translateX(calc(-50% - 5px))}}
+    .ssad-floating-top{display:flex;align-items:center;gap:6px;color:#d8e3f3;font-size:.70rem;font-weight:800;white-space:nowrap;}
+    .ssad-floating-top .ssad-badge{margin-left:auto;font-size:.56rem;padding:3px 5px;}
+    .ssad-floating-dot{width:6px;height:6px;border-radius:50%;background:#39e58c;box-shadow:0 0 9px rgba(57,229,140,.8);flex:0 0 auto;}
+    .ssad-floating-price{font-size:1rem;font-weight:800;margin-top:7px;color:#f3f6fb;}
+    .ssad-floating-move{font-size:.67rem;font-weight:800;margin-top:2px;}
+    .ssad-floating-market .ssad-mini-chart{right:6px;bottom:5px;width:42%;height:34px;opacity:.6;}
+    .ssad-floating-add{flex:0 0 42px;align-self:center;width:42px!important;height:42px!important;padding:0!important;border-radius:50%!important;font-size:1.35rem!important;color:#9bb1cf!important;background:rgba(255,255,255,.035)!important;}
+    .ssad-hero-clean{min-height:390px;margin-top:2px;background:radial-gradient(circle at 82% 38%,rgba(40,126,255,.18),transparent 25%),radial-gradient(circle at 70% 78%,rgba(57,229,140,.10),transparent 24%),linear-gradient(120deg,rgba(17,23,36,.98),rgba(7,10,17,.94));}
+    .ssad-hero-clean .ssad-hero-copy{max-width:78%;padding:58px 52px;}
+    .ssad-hero-clean .ssad-eyebrow span{color:#65758d;margin:0 6px;}
+    .ssad-hero-clean h1{font-size:clamp(2.7rem,5vw,4.6rem);letter-spacing:-2.8px;margin:12px 0 17px;}
+    .ssad-hero-clean h1 span{background:linear-gradient(90deg,#55efc2,#55b8ff 48%,#a97cff);-webkit-background-clip:text;background-clip:text;color:transparent;}
+    .ssad-hero-clean p{max-width:690px;font-size:.98rem;margin-bottom:25px;}
+    .ssad-chip.blue{color:#8dbbff;border-color:rgba(104,168,255,.25);}
+    .ssad-chip.purple{color:#c19bff;border-color:rgba(165,108,255,.28);}
+    .ssad-chip.cyan{color:#6eeaff;border-color:rgba(0,216,255,.25);}
+    .ssad-feature-line{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:27px;color:#94a8c1;font-size:.68rem;font-weight:800;letter-spacing:.8px;}
+    .ssad-feature-line span:first-child{color:#69e8b1;}
+    .ssad-feature-line b{color:#53657e;}
+    .ssad-hero-globe{position:absolute;right:2%;top:3%;width:min(43vw,470px);height:min(43vw,470px);opacity:.94;z-index:1;filter:drop-shadow(0 18px 45px rgba(0,0,0,.25));pointer-events:none;}
+    .ssad-hero-globe svg{width:100%;height:100%;overflow:visible;}
+    .ssad-hero-glow{position:absolute;right:9%;top:17%;width:270px;height:270px;border-radius:50%;background:radial-gradient(circle,rgba(68,155,255,.11),transparent 67%);filter:blur(2px);}
+    .ssad-hero-orbit{position:absolute;border:1px solid rgba(87,155,255,.18);border-radius:50%;pointer-events:none;}
+    .ssad-hero-orbit.orbit-one{width:310px;height:310px;right:5%;top:11%;transform:rotate(-22deg);}
+    .ssad-hero-orbit.orbit-two{width:430px;height:190px;right:-1%;top:27%;transform:rotate(-22deg);border-color:rgba(57,229,140,.13);}
+    .ssad-hero-node{position:absolute;width:7px;height:7px;border-radius:50%;background:#68dfff;box-shadow:0 0 16px rgba(104,223,255,.9);}
+    .ssad-hero-node.node-one{right:21%;top:20%;}.ssad-hero-node.node-two{right:10%;top:58%;background:#39e58c;box-shadow:0 0 16px rgba(57,229,140,.9);}.ssad-hero-node.node-three{right:29%;bottom:18%;background:#a87cff;box-shadow:0 0 16px rgba(168,124,255,.8);}
+    .ssad-section-title-spaced{margin-top:20px;}
+    .ssad-action-card-compact{min-height:164px;padding:17px;}
+    .ssad-action-card-compact .art{height:45px;margin-bottom:6px;}
+    .ssad-action-card-compact p{min-height:42px;}
+    @media (max-width: 900px){.ssad-hero-clean{min-height:430px;}.ssad-hero-clean .ssad-hero-copy{max-width:100%;padding:42px 30px;}.ssad-hero-globe{width:390px;height:390px;right:-90px;top:8%;opacity:.42;}.ssad-hero-orbit,.ssad-hero-glow{opacity:.45;right:-100px;}.ssad-floating-market{min-width:145px;}}
+    @media (max-width: 650px){.ssad-hero-clean{min-height:470px;}.ssad-hero-clean .ssad-hero-copy{padding:34px 22px;}.ssad-hero-clean h1{font-size:2.5rem;}.ssad-feature-line{gap:8px;font-size:.62rem;}.ssad-hero-globe{width:320px;height:320px;right:-115px;top:12%;opacity:.28;}.ssad-floating-market{min-width:138px;}.ssad-chip{font-size:.67rem;}}
     </style>
     """,
     unsafe_allow_html=True,
@@ -790,8 +833,9 @@ with st.sidebar:
     with st.container(key="ssad_footer_metrics"):
         st.caption("CONNECTION")
         fc1, fc2 = st.columns(2)
-        fc1.metric("WebSocket", "18ms")
-        fc2.metric("Broker API", "🟢")
+        _any_live = bool(_LIVE_PRICES)
+        fc1.metric("WebSocket", "LIVE" if _any_live else "WAITING")
+        fc2.metric("Broker API", "CONNECTED" if st.session_state.broker_connected else "NOT CONNECTED")
         st.session_state.setdefault("theme_dark", True)
         st.session_state.setdefault("alerts_on", True)
         tcol1, tcol2 = st.columns(2)
@@ -1454,77 +1498,126 @@ def action_art(kind):
 # 📊 VIEW 1: DASHBOARD
 # ==========================================
 if st.session_state.active_tab == '📊 Dashboard':
-    hero_html = f'''<div class="ssad-hero"><div class="ssad-hero-grid"></div><div class="ssad-hero-copy"><div class="ssad-eyebrow">Institutional Quant Terminal • Session Intelligence</div><h1>Smart Session<br/>Anomaly Detector</h1><p>Multi-asset market intelligence, anomaly detection, execution controls and systematic strategy research — presented in one professional workspace.</p><div class="ssad-chip-row"><span class="ssad-chip live">● ML ENGINE ONLINE</span><span class="ssad-chip">12 Markets</span><span class="ssad-chip">15m Signal Layer</span><span class="ssad-chip">Paper Execution Ready</span></div></div><div class="ssad-hero-art"><svg viewBox="0 0 600 300" width="100%" height="100%" preserveAspectRatio="none"><defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#68a8ff" stop-opacity=".32"/><stop offset="1" stop-color="#68a8ff" stop-opacity="0"/></linearGradient></defs><g opacity=".28" stroke="#fff"><path d="M30 70 H570 M30 130 H570 M30 190 H570 M30 250 H570"/><path d="M110 30 V270 M200 30 V270 M290 30 V270 M380 30 V270 M470 30 V270"/></g><path d="M25 245 L70 214 L108 224 L146 160 L190 185 L232 120 L270 145 L314 91 L355 128 L405 74 L442 104 L480 58 L525 84 L575 35 L575 290 L25 290Z" fill="url(#area)"/><path d="M25 245 L70 214 L108 224 L146 160 L190 185 L232 120 L270 145 L314 91 L355 128 L405 74 L442 104 L480 58 L525 84 L575 35" fill="none" stroke="#68a8ff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M405 74 L442 104 L480 58 L525 84 L575 35" fill="none" stroke="#39e58c" stroke-width="4"/><circle cx="575" cy="35" r="6" fill="#39e58c"/></svg></div></div>'''
-    st.markdown(hero_html, unsafe_allow_html=True)
-    st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="ssad-section-title">Market Pulse</div>', unsafe_allow_html=True)
-
-    def _card_live(symbol, label, category, small=False, no_currency=False):
-        d = get_live(symbol)
-        hist = d["history"] if d and len(d["history"]) >= 2 else [d["price"], d["price"]] if d else [1, 1]
-        if no_currency:
-            price_str = f"{d['price']:,.2f}"
+    # Compact floating market strip — uses the existing live-feed functions.
+    def _floating_market(symbol, label, category, fallback_ticker=None, small=False, no_currency=False):
+        live = get_live(symbol) if symbol else None
+        if live:
+            price = live["price"]
+            pct = live["pct"]
+            history = live.get("history", [price, price])
+        elif fallback_ticker:
+            df = load_ohlcv(fallback_ticker, period="5d", interval="15m")
+            if df.empty or len(df) < 2:
+                return (label, "—", "0.00%", "up", [1, 1], category)
+            history = df["Close"].tail(12).tolist()
+            price = float(history[-1])
+            prev = float(history[0]) if history else price
+            pct = ((price - prev) / prev * 100) if prev else 0.0
         else:
-            price_str = f"{d['price']:,.4f}" if small else f"${d['price']:,.2f}"
-        return (label, price_str, f"{d['pct']:+.2f}%", "up" if d["pct"] >= 0 else "down", hist, category)
-
-    def _card_delayed(label, yf_ticker, category, small=False, no_currency=False):
-        df = load_ohlcv(yf_ticker, period="5d", interval="15m")
-        if df.empty or len(df) < 2:
             return (label, "—", "0.00%", "up", [1, 1], category)
-        closes = df["Close"].tail(12).tolist()
-        last, prev = closes[-1], closes[0]
-        pct = (last - prev) / prev * 100 if prev else 0.0
+
         if no_currency:
-            price_str = f"{last:,.2f}"
+            price_str = f"{price:,.2f}"
+        elif small:
+            price_str = f"{price:,.4f}"
         else:
-            price_str = f"{last:,.4f}" if small else f"${last:,.2f}"
-        return (label, price_str, f"{pct:+.2f}%", "up" if pct >= 0 else "down", closes, category)
+            price_str = f"${price:,.2f}"
+        return (label, price_str, f"{pct:+.2f}%", "up" if pct >= 0 else "down", history, category)
 
-    market_cards = []
-    market_cards.append(
-        _card_live("OANDA:XAU_USD", "XAU/USD", "forex") if get_live("OANDA:XAU_USD")
-        else _card_delayed("XAU/USD", default_cfg["yf"], "forex")
-    )
-    market_cards.append(
-        _card_live("BTCUSDT", "BTC/USDT", "crypto") if get_live("BTCUSDT")
-        else _card_delayed("BTC/USDT", "BTC-USD", "crypto")
-    )
-    market_cards.append(_card_delayed("NIFTY 50", "^NSEI", "nse", no_currency=True))
-    market_cards.append(
-        _card_live("OANDA:EUR_USD", "EUR/USD", "forex", small=True) if get_live("OANDA:EUR_USD")
-        else _card_delayed("EUR/USD", "EURUSD=X", "forex", small=True)
+    floating_markets = [
+        _floating_market("OANDA:XAU_USD", "XAU/USD", "forex", default_cfg.get("yf"), no_currency=True),
+        _floating_market("BTCUSDT", "BTC/USDT", "crypto", "BTC-USD"),
+        _floating_market("OANDA:EUR_USD", "EUR/USD", "forex", "EURUSD=X", small=True),
+        _floating_market("AAPL", "AAPL", "us_equity", "AAPL"),
+        _floating_market("", "NIFTY 50", "nse", "^NSEI", no_currency=True),
+    ]
+
+    floating_cards = []
+    for label, price, move, cls, points, category in floating_markets:
+        floating_cards.append(
+            f'<div class="ssad-floating-market">'
+            f'<div class="ssad-floating-top"><span class="ssad-floating-dot"></span>'
+            f'<span>{label}</span>{status_badge(category)}</div>'
+            f'<div class="ssad-floating-price">{price}</div>'
+            f'<div class="ssad-floating-move {cls}">{move}</div>'
+            f'{sparkline_svg(points, "#39e58c" if cls == "up" else "#ff5c68", "rgba(57,229,140,.08)" if cls == "up" else "rgba(255,92,104,.08)")}'
+            f'</div>'
+        )
+    cards_html = "".join(floating_cards)
+    st.markdown(
+        f'<div class="ssad-floating-viewport"><div class="ssad-floating-track">'
+        f'{cards_html}{cards_html}'
+        f'</div></div>',
+        unsafe_allow_html=True,
     )
 
-    mc=st.columns(4,gap='medium')
-    for col,(label,price,move,cls,points,category) in zip(mc,market_cards):
+    # Clean hero: no large chart and no right-side panel.
+    hero_html = '''
+    <div class="ssad-hero ssad-hero-clean">
+        <div class="ssad-hero-grid"></div>
+        <div class="ssad-hero-glow"></div>
+        <div class="ssad-hero-globe" aria-hidden="true">
+            <svg viewBox="0 0 430 430" role="img">
+                <defs>
+                    <radialGradient id="ssadGlobeFill" cx="35%" cy="28%">
+                        <stop offset="0%" stop-color="#6bc7ff" stop-opacity=".22"/>
+                        <stop offset="55%" stop-color="#2478d8" stop-opacity=".10"/>
+                        <stop offset="100%" stop-color="#07101f" stop-opacity=".02"/>
+                    </radialGradient>
+                    <filter id="ssadGlobeGlow"><feGaussianBlur stdDeviation="5"/></filter>
+                </defs>
+                <circle cx="215" cy="215" r="150" fill="url(#ssadGlobeFill)" stroke="#69b9ff" stroke-opacity=".24" stroke-width="2"/>
+                <ellipse cx="215" cy="215" rx="150" ry="58" fill="none" stroke="#69b9ff" stroke-opacity=".18"/>
+                <ellipse cx="215" cy="215" rx="150" ry="105" fill="none" stroke="#69b9ff" stroke-opacity=".12"/>
+                <ellipse cx="215" cy="215" rx="58" ry="150" fill="none" stroke="#69b9ff" stroke-opacity=".16"/>
+                <ellipse cx="215" cy="215" rx="105" ry="150" fill="none" stroke="#69b9ff" stroke-opacity=".11"/>
+                <path d="M76 186 C126 158 165 172 201 153 C244 131 280 135 347 108" fill="none" stroke="#39e58c" stroke-opacity=".55" stroke-width="2"/>
+                <path d="M92 279 C148 244 194 271 238 247 C282 223 306 236 346 206" fill="none" stroke="#68a8ff" stroke-opacity=".48" stroke-width="2"/>
+                <circle cx="151" cy="169" r="4" fill="#68dfff" filter="url(#ssadGlobeGlow)"/><circle cx="151" cy="169" r="3" fill="#68dfff"/>
+                <circle cx="239" cy="247" r="4" fill="#39e58c" filter="url(#ssadGlobeGlow)"/><circle cx="239" cy="247" r="3" fill="#39e58c"/>
+                <circle cx="303" cy="143" r="4" fill="#a87cff" filter="url(#ssadGlobeGlow)"/><circle cx="303" cy="143" r="3" fill="#a87cff"/>
+            </svg>
+        </div>
+        <div class="ssad-hero-copy">
+            <div class="ssad-eyebrow">QUANT TRADING TERMINAL <span>•</span> SESSION INTELLIGENCE</div>
+            <h1>Smart Session<br/><span>Anomaly Detector</span></h1>
+            <p>Multi-asset market intelligence, anomaly detection, execution controls and systematic strategy research — all in one professional workspace.</p>
+            <div class="ssad-chip-row">
+                <span class="ssad-chip live">● ML ENGINE ONLINE</span>
+                <span class="ssad-chip blue">◎ MULTI-MARKET</span>
+                <span class="ssad-chip purple">◷ MULTI-TIMEFRAME ANALYSIS</span>
+                <span class="ssad-chip cyan">↗ FLEXIBLE EXECUTION</span>
+            </div>
+            <div class="ssad-feature-line">
+                <span>◉ LIVE MARKET DATA</span><b>•</b>
+                <span>♧ ANOMALY MONITORING</span><b>•</b>
+                <span>◎ SIGNAL GENERATION</span>
+            </div>
+        </div>
+        <div class="ssad-hero-orbit orbit-one"></div>
+        <div class="ssad-hero-orbit orbit-two"></div>
+        <div class="ssad-hero-node node-one"></div>
+        <div class="ssad-hero-node node-two"></div>
+        <div class="ssad-hero-node node-three"></div>
+    </div>
+    '''
+    st.markdown(hero_html, unsafe_allow_html=True)
+
+    st.markdown('<div class="ssad-section-title ssad-section-title-spaced">Workspace</div>', unsafe_allow_html=True)
+    actions = [
+        ('chart','Chart Analysis','Candlesticks, indicators, anomaly zones and execution controls.','Open Charts →','📈 Chart Analysis'),
+        ('risk','Pip & Risk Engine','Position sizing, risk-to-reward and exposure planning.','Open Calculator →','🧮 Pip & Risk Calculator'),
+        ('broker','Flexible Execution','Connect paper, live or supported funded/broker accounts.','Open Gateway →','⚡ Broker Gateway'),
+        ('quant','Quant Lab','Idea → build → backtest → validate → deploy systematic research.','Open Quant Lab →','🧪 Quant Lab'),
+    ]
+    qa = st.columns(4, gap='medium')
+    for col, (kind, title, desc, btn, target) in zip(qa, actions):
         with col:
-            st.markdown(f'<div class="ssad-market-card"><div class="label">{label}{status_badge(category)}</div><div class="price">{price}</div><div class="move {cls}">{move}</div>{sparkline_svg(points,"#39e58c" if cls=="up" else "#ff5c68","rgba(57,229,140,.09)" if cls=="up" else "rgba(255,92,104,.08)")}</div>',unsafe_allow_html=True)
-    st.markdown('<div style="height:16px"></div>',unsafe_allow_html=True)
-    st.markdown('<div class="ssad-section-title">Workspace</div>',unsafe_allow_html=True)
-    actions=[('chart','Chart Analysis','Candlesticks, indicators, anomaly zones and direct execution controls.','Open Charts →','📈 Chart Analysis'),('risk','Pip & Risk Engine','Position sizing, risk-to-reward and exposure planning before execution.','Open Calculator →','🧮 Pip & Risk Calculator'),('broker','Broker Gateway','Connection layer for paper trading and supported broker/API bridges.','Open Gateway →','⚡ Broker Gateway'),('calendar','Economic Calendar','High-impact macro events with forecast, actual and previous values.','View Calendar →','📅 Economic Calendar'),('ai','AI Co-Pilot','Market context, strategy assistance, saved EAs and voice interaction.','Open Co-Pilot →','BOT'),('quant','Quant Lab','Idea → build → backtest → validate → deploy workflow for systematic research.','Open Quant Lab →','🧪 Quant Lab')]
-    qa=st.columns(6,gap='medium')
-    for col,(kind,title,desc,btn,target) in zip(qa,actions):
-        with col:
-            st.markdown(f'<div class="ssad-action-card"><div class="art">{action_art(kind)}</div><h3>{title}</h3><p>{desc}</p></div>',unsafe_allow_html=True)
-            if target=='BOT': st.button(btn,key=f'pro_qa_{kind}',use_container_width=True,on_click=open_bot)
-            else: st.button(btn,key=f'pro_qa_{kind}',use_container_width=True,on_click=switch_page,args=(target,))
-    st.markdown('<div style="height:16px"></div>',unsafe_allow_html=True)
-    left,right=st.columns([1.35,.65],gap='medium')
-    with left:
-        st.markdown('<div class="ssad-section-title">Live System Monitor</div>',unsafe_allow_html=True)
-        st.markdown('<div class="ssad-status-card"><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px"><div><div class="k">ML Signal Layer</div><div class="v" style="color:#39e58c">ONLINE</div></div><div><div class="k">Market Feed</div><div class="v">15s sync</div></div><div><div class="k">Execution</div><div class="v">PAPER</div></div><div><div class="k">AI Co-Pilot</div><div class="v" style="color:#68a8ff">READY</div></div></div></div>',unsafe_allow_html=True)
-        st.markdown('<div class="ssad-section-title" style="margin-top:18px">Recent Activity</div>',unsafe_allow_html=True)
-        if st.session_state.positions:
-            for p in st.session_state.positions[:6]:
-                side_cls='green' if p.get('Type') in ('BUY/LONG','LONG','BUY') else 'amber'
-                st.markdown(f'<div class="ssad-feed"><div><div class="symbol">{p.get("Asset","—")} <span class="ssad-badge {side_cls}">{p.get("Type","—")}</span></div><div class="meta">{p.get("Timestamp","—")} • {p.get("Bridge","Demo Simulated")}</div></div><div style="font-weight:800">{p.get("Price","—")}</div></div>',unsafe_allow_html=True)
-        else: st.markdown('<div class="ssad-status-card"><span style="color:#7f899b">No execution activity yet. Open Chart Analysis to inspect the market and place a paper trade.</span></div>',unsafe_allow_html=True)
-    with right:
-        st.markdown('<div class="ssad-section-title">Session Snapshot</div>',unsafe_allow_html=True)
-        for k,v,cls in [('Anomaly Engine','Monitoring','green'),('EA Deployments',str(len(st.session_state.ea_deployments)),'blue'),('Saved Strategies',str(len(st.session_state.strategy_library)),'amber'),('Broker Mode',st.session_state.broker_api_mode,'blue')]:
-            st.markdown(f'<div class="ssad-status-card" style="margin-bottom:10px"><div class="k">{k}</div><div class="v">{v}</div><span class="ssad-badge {cls}">● ACTIVE</span></div>',unsafe_allow_html=True)
-    st.markdown('<div class="ssad-footer-note">● OPEN / ● CLOSED badges reflect each instrument\'s real trading hours. Prices for BTC/ETH stream live over WebSocket (Binance); gold/forex/stocks stream live once a free Finnhub key is added in Settings, otherwise they show the latest polled price. Execution remains paper/demo until a broker bridge is configured.</div>',unsafe_allow_html=True)
+            st.markdown(f'<div class="ssad-action-card ssad-action-card-compact"><div class="art">{action_art(kind)}</div><h3>{title}</h3><p>{desc}</p></div>', unsafe_allow_html=True)
+            st.button(btn, key=f'pro_qa_{kind}', use_container_width=True, on_click=switch_page, args=(target,))
+
+    st.markdown('<div class="ssad-footer-note">Live prices are shown from the existing market-feed configuration. Instrument availability and execution mode depend on the connected data/broker services.</div>', unsafe_allow_html=True)
+
 
 # ==========================================
 # 📈 VIEW 2: CHART ANALYSIS
