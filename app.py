@@ -1,4 +1,5 @@
 from datetime import datetime
+import os
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -9,7 +10,6 @@ import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
 from tradingview_ta import Interval, TA_Handler
 import yfinance as yf
-import os
 import requests
 
 # --- PAGE CONFIG ---
@@ -398,69 +398,6 @@ MARKET_UNIVERSE = {
 }
 
 
-# --- LIVE MARKET DATA (Twelve Data) ---
-# Reads the API key from Streamlit secrets or the TWELVE_DATA_API_KEY environment variable.
-# The UI is unchanged; Twelve Data is only used as the live-data source, with yfinance as fallback.
-TWELVE_DATA_API_KEY = ""
-try:
-    TWELVE_DATA_API_KEY = st.secrets.get("TWELVE_DATA_API_KEY", "")
-except Exception:
-    TWELVE_DATA_API_KEY = ""
-TWELVE_DATA_API_KEY = TWELVE_DATA_API_KEY or os.getenv("TWELVE_DATA_API_KEY", "")
-
-@st.cache_data(ttl=12, show_spinner=False)
-def get_live_quote(symbol):
-    if not TWELVE_DATA_API_KEY:
-        return None
-    try:
-        r = requests.get(
-            "https://api.twelvedata.com/quote",
-            params={"symbol": symbol, "apikey": TWELVE_DATA_API_KEY},
-            timeout=5,
-        )
-        data = r.json()
-        if data.get("status") == "error" or "close" not in data:
-            return None
-        return {
-            "price": float(data["close"]),
-            "percent_change": float(data.get("percent_change", 0.0)),
-            "previous_close": float(data.get("previous_close", data["close"])),
-        }
-    except Exception:
-        return None
-
-@st.cache_data(ttl=15, show_spinner=False)
-def get_live_candle_data(symbol, interval="15min", outputsize=120):
-    if not TWELVE_DATA_API_KEY:
-        return None
-    try:
-        r = requests.get(
-            "https://api.twelvedata.com/time_series",
-            params={
-                "symbol": symbol,
-                "interval": interval,
-                "outputsize": outputsize,
-                "apikey": TWELVE_DATA_API_KEY,
-            },
-            timeout=8,
-        )
-        data = r.json()
-        values = data.get("values")
-        if not values:
-            return None
-        df = pd.DataFrame(values)
-        df["datetime"] = pd.to_datetime(df["datetime"])
-        df = df.set_index("datetime").sort_index()
-        for c in ["open", "high", "low", "close", "volume"]:
-            if c in df.columns:
-                df[c] = pd.to_numeric(df[c], errors="coerce")
-        df = df.rename(columns={"open":"Open", "high":"High", "low":"Low", "close":"Close", "volume":"Volume"})
-        if "Volume" not in df.columns:
-            df["Volume"] = 0
-        return df[["Open", "High", "Low", "Close", "Volume"]].dropna(subset=["Open","High","Low","Close"])
-    except Exception:
-        return None
-
 # --- DATA LOADERS ---
 @st.cache_data(ttl=15)
 def get_tv_summary(
@@ -475,21 +412,97 @@ def get_tv_summary(
         return None
 
 
-@st.cache_data(ttl=30)
-def load_ohlcv(ticker, period="1mo", interval="15m", fallback_price=2450.0):
-    # Prefer Twelve Data when the ticker can be mapped to a live symbol.
-    td_symbol_map = {
-        "AAPL": "AAPL", "NVDA": "NVDA", "BTC-USD": "BTC/USD",
-        "ETH-USD": "ETH/USD", "EURUSD=X": "EUR/USD", "USDINR=X": "USD/INR",
-        "GC=F": "XAU/USD", "SI=F": "XAG/USD", "CL=F": "WTI",
-    }
-    td_symbol = td_symbol_map.get(ticker)
-    td_interval = {"5m":"5min", "15m":"15min", "1h":"1h", "1d":"1day"}.get(interval, "15min")
-    if td_symbol:
-        td_df = get_live_candle_data(td_symbol, td_interval, 120)
-        if td_df is not None and len(td_df) >= 15:
-            return td_df
+# --- LIVE MARKET DATA (Twelve Data) ---
+# UI is intentionally unchanged. The existing 20-second Streamlit refresh
+# re-reads these live quotes/candles without changing the page layout.
+TWELVE_DATA_API_KEY = ""
+try:
+    TWELVE_DATA_API_KEY = st.secrets.get("TWELVE_DATA_API_KEY", "")
+except Exception:
+    pass
+TWELVE_DATA_API_KEY = TWELVE_DATA_API_KEY or os.getenv("TWELVE_DATA_API_KEY", "")
 
+TD_SYMBOLS = {
+    "GC=F": "XAU/USD",
+    "SI=F": "XAG/USD",
+    "CL=F": "WTI",
+    "BTC-USD": "BTC/USD",
+    "ETH-USD": "ETH/USD",
+    "^NSEI": "NIFTY",
+    "RELIANCE.NS": "RELIANCE",
+    "HDFCBANK.NS": "HDFCBANK",
+    "NVDA": "NVDA",
+    "AAPL": "AAPL",
+    "EURUSD=X": "EUR/USD",
+    "USDINR=X": "USD/INR",
+    "^GSPC": "SPX",
+}
+
+@st.cache_data(ttl=10, show_spinner=False)
+def get_live_quote(ticker):
+    symbol = TD_SYMBOLS.get(ticker, ticker)
+    if not TWELVE_DATA_API_KEY:
+        return None
+    try:
+        r = requests.get(
+            "https://api.twelvedata.com/quote",
+            params={"symbol": symbol, "apikey": TWELVE_DATA_API_KEY},
+            timeout=5,
+        )
+        data = r.json()
+        if data.get("status") == "error" or not data.get("close"):
+            return None
+        return {
+            "price": float(data["close"]),
+            "percent_change": float(data.get("percent_change", 0) or 0),
+            "previous_close": float(data.get("previous_close", data["close"]) or data["close"]),
+        }
+    except Exception:
+        return None
+
+@st.cache_data(ttl=15, show_spinner=False)
+def get_live_candles(ticker, interval="15min", outputsize=120):
+    symbol = TD_SYMBOLS.get(ticker, ticker)
+    if not TWELVE_DATA_API_KEY:
+        return None
+    td_interval = {"5m":"5min", "15m":"15min", "1h":"1h", "1d":"1day"}.get(interval, "15min")
+    try:
+        r = requests.get(
+            "https://api.twelvedata.com/time_series",
+            params={
+                "symbol": symbol,
+                "interval": td_interval,
+                "outputsize": outputsize,
+                "apikey": TWELVE_DATA_API_KEY,
+            },
+            timeout=8,
+        )
+        data = r.json()
+        values = data.get("values")
+        if not values:
+            return None
+        df = pd.DataFrame(values)
+        df["datetime"] = pd.to_datetime(df["datetime"])
+        df = df.set_index("datetime").sort_index()
+        for col in ["open", "high", "low", "close", "volume"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+        df = df.rename(columns={"open":"Open", "high":"High", "low":"Low", "close":"Close", "volume":"Volume"})
+        if "Volume" not in df.columns:
+            df["Volume"] = 0
+        return df[["Open", "High", "Low", "Close", "Volume"]].dropna(subset=["Open", "High", "Low", "Close"])
+    except Exception:
+        return None
+
+
+def load_ohlcv(ticker, period="1mo", interval="15m", fallback_price=2450.0):
+    # Prefer live Twelve Data candles whenever the API key and symbol are available.
+    td_df = get_live_candles(ticker, interval=interval, outputsize=120)
+    if td_df is not None and len(td_df) >= 15:
+        return td_df
+
+    # Keep the original yfinance fallback so the existing app remains functional
+    # if a symbol is not covered by the user's Twelve Data plan.
     try:
         df = yf.download(ticker, period=period, interval=interval, progress=False)
         if df is not None and not df.empty and len(df) >= 15:
@@ -508,6 +521,8 @@ def load_ohlcv(ticker, period="1mo", interval="15m", fallback_price=2450.0):
     except Exception:
         pass
 
+    # Original offline fallback retained only for app availability when no market
+    # provider can return data. It is not presented as live data.
     n = 60
     t = pd.date_range(end=pd.Timestamp.now(), periods=n, freq="15min")
     rets = np.random.normal(0.0001, 0.002, n)
@@ -516,9 +531,7 @@ def load_ohlcv(ticker, period="1mo", interval="15m", fallback_price=2450.0):
     l = c * (1 - np.abs(np.random.normal(0, 0.0015, n)))
     o = (h + l) / 2
     v = np.random.randint(2000, 8000, size=n)
-    return pd.DataFrame(
-        {"Open": o, "High": h, "Low": l, "Close": c, "Volume": v}, index=t
-    )
+    return pd.DataFrame({"Open": o, "High": h, "Low": l, "Close": c, "Volume": v}, index=t)
 
 
 default_cfg = MARKET_UNIVERSE["🟡 Metals & Commodities"]["Gold (XAU/USD)"]
@@ -539,30 +552,35 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-def _fmt_live(symbol, fallback_price, fallback_pct):
-    q = get_live_quote(symbol)
+def _live_ticker_item(ticker, label, icon, fallback_price, fallback_pct, prefix=""):
+    q = get_live_quote(ticker)
     if q is None:
-        return fallback_price, fallback_pct
-    return q["price"], q["percent_change"]
-
-_x1, _p1 = _fmt_live("XAU/USD", 2468.40, 0.84)
-_x2, _p2 = _fmt_live("BTC/USD", 78820.00, 2.15)
-_x3, _p3 = _fmt_live("AAPL", 240.00, 0.41)
-_x4, _p4 = _fmt_live("NVDA", 180.00, 0.60)
-_x5, _p5 = _fmt_live("EUR/USD", 1.0825, -0.08)
-
-def _tk(label, price, pct, icon):
-    cls = "up" if pct >= 0 else "down"
-    return f'<span class="tk-item">{icon} {label}&nbsp;<b>{price:,.4f}</b>&nbsp;<span class="{cls}">{pct:+.2f}%</span></span>'
+        price_text = "—"
+        pct_text = "LIVE UNAVAILABLE"
+        pct_class = "down"
+    else:
+        price = q["price"]
+        pct = q["percent_change"]
+        if price >= 1000:
+            price_text = f"{prefix}{price:,.2f}"
+        elif price >= 10:
+            price_text = f"{prefix}{price:,.2f}"
+        else:
+            price_text = f"{prefix}{price:,.4f}"
+        pct_text = f"{pct:+.2f}%"
+        pct_class = "up" if pct >= 0 else "down"
+    return (
+        f'<span class="tk-item">{icon} {label}&nbsp;<b>{price_text}</b>&nbsp;'
+        f'<span class="{pct_class}">{pct_text}</span></span>'
+    )
 
 _TICKER_ITEMS = (
-    _tk("XAU/USD", _x1, _p1, "🟡")
-    + _tk("BTC/USDT", _x2, _p2, "🪙")
-    + _tk("AAPL", _x3, _p3, "🇺🇸")
-    + _tk("NVDA", _x4, _p4, "🇺🇸")
-    + _tk("EUR/USD", _x5, _p5, "💱")
+    _live_ticker_item("GC=F", "XAU/USD", "🟡", 2468.40, 0.84, "$" )
+    + _live_ticker_item("BTC-USD", "BTC/USDT", "🪙", 78820.00, 2.15, "$" )
+    + _live_ticker_item("^NSEI", "NIFTY 50", "🇮🇳", 24310.80, -0.24)
+    + _live_ticker_item("^GSPC", "S&amp;P 500", "🇺🇸", 5840.10, 0.41)
+    + _live_ticker_item("EURUSD=X", "EUR/USD", "💱", 1.0825, -0.08)
 )
-
 _ticker_html = f"""
 <style>
   html, body {{ margin:0; padding:0; background: transparent; overflow: hidden; }}
