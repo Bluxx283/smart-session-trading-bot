@@ -723,6 +723,7 @@ MARKET_UNIVERSE = {
 
 
 # --- DATA LOADERS ---
+# --- DATA LOADERS ---
 @st.cache_data(ttl=15)
 def get_tv_summary(
     symbol, exchange, screener, interval=Interval.INTERVAL_15_MINUTES
@@ -736,10 +737,11 @@ def get_tv_summary(
         return None
 
 
+# Twelve Data is the sole market-data provider.
 _TWELVE_BASE_URL = "https://api.twelvedata.com"
 
-# Twelve Data symbols corresponding to the existing market-universe Yahoo symbols.
-# The visible UI labels and market-universe structure are intentionally unchanged.
+# Existing Yahoo symbols -> Twelve Data symbols.
+# Exchange-qualified symbols use Twelve Data's SYMBOL:EXCHANGE format.
 _TWELVE_SYMBOLS = {
     "GC=F": "XAU/USD",
     "SI=F": "XAG/USD",
@@ -753,30 +755,46 @@ _TWELVE_SYMBOLS = {
     "AAPL": "AAPL",
     "EURUSD=X": "EUR/USD",
     "USDINR=X": "USD/INR",
+    "SPX": "SPX",
 }
 
 _INTERVAL_MAP = {
-    "1m": "1min", "5m": "5min", "15m": "15min", "30m": "30min",
-    "45m": "45min", "1h": "1h", "2h": "2h", "4h": "4h",
-    "8h": "8h", "1d": "1day", "1day": "1day",
+    "1m": "1min",
+    "5m": "5min",
+    "15m": "15min",
+    "30m": "30min",
+    "45m": "45min",
+    "1h": "1h",
+    "2h": "2h",
+    "4h": "4h",
+    "8h": "8h",
+    "1d": "1day",
+    "1day": "1day",
 }
 
+
 def _twelve_api_key():
-    return st.secrets.get("TWELVE_DATA_API_KEY", os.getenv("TWELVE_DATA_API_KEY", ""))
+    try:
+        key = st.secrets.get("TWELVE_DATA_API_KEY", "")
+    except Exception:
+        key = ""
+    return str(key or os.getenv("TWELVE_DATA_API_KEY", "")).strip()
+
 
 def _twelve_symbol(ticker):
     return _TWELVE_SYMBOLS.get(ticker, ticker)
 
+
 @st.cache_data(ttl=30, show_spinner=False)
 def load_ohlcv(ticker, period="1mo", interval="15m", fallback_price=2450.0):
-    """Load OHLCV exclusively from Twelve Data; no Yahoo/synthetic fallback."""
+    """Load OHLCV only from Twelve Data. No Yahoo or synthetic fallback."""
     api_key = _twelve_api_key()
     if not api_key:
         return pd.DataFrame()
 
     td_interval = _INTERVAL_MAP.get(interval, interval)
     symbol = _twelve_symbol(ticker)
-    outputsize = 5000 if td_interval in {"1min", "5min", "15min", "30min", "45min", "1h", "2h", "4h", "8h"} else 120
+    outputsize = 5000 if td_interval != "1day" else 120
 
     try:
         response = requests.get(
@@ -789,29 +807,48 @@ def load_ohlcv(ticker, period="1mo", interval="15m", fallback_price=2450.0):
                 "timezone": "UTC",
                 "apikey": api_key,
             },
-            timeout=10,
+            timeout=12,
         )
+        response.raise_for_status()
         data = response.json()
+
         values = data.get("values") if isinstance(data, dict) else None
         if not values:
             return pd.DataFrame()
 
         df = pd.DataFrame(values)
         df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
-        df = df.set_index("datetime")
-        for col in ["Open", "High", "Low", "Close", "Volume"]:
-            source = col.lower()
-            if source in df.columns:
-                df[col] = pd.to_numeric(df[source], errors="coerce")
-            elif col == "Volume":
-                df[col] = 0.0
-        return df[["Open", "High", "Low", "Close", "Volume"]].dropna(subset=["Open", "High", "Low", "Close"])
+        df = df.dropna(subset=["datetime"]).set_index("datetime")
+
+        for col in ["open", "high", "low", "close", "volume"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        if "volume" not in df.columns:
+            df["volume"] = 0.0
+
+        df = df.rename(
+            columns={
+                "open": "Open",
+                "high": "High",
+                "low": "Low",
+                "close": "Close",
+                "volume": "Volume",
+            }
+        )
+
+        required = ["Open", "High", "Low", "Close", "Volume"]
+        if not all(col in df.columns for col in required):
+            return pd.DataFrame()
+
+        return df[required].dropna(subset=["Open", "High", "Low", "Close"])
     except Exception:
         return pd.DataFrame()
 
-@st.cache_data(ttl=20, show_spinner=False)
+
+@st.cache_data(ttl=30, show_spinner=False)
 def get_twelve_quotes(symbols):
-    """Fetch current quote/change data from Twelve Data in one batch request."""
+    """Get current quote/change data from Twelve Data batch /quote."""
     api_key = _twelve_api_key()
     if not api_key:
         return {}
@@ -820,24 +857,29 @@ def get_twelve_quotes(symbols):
     try:
         response = requests.get(
             f"{_TWELVE_BASE_URL}/quote",
-            params={"symbol": ",".join(td_symbols), "apikey": api_key},
-            timeout=10,
+            params={
+                "symbol": ",".join(td_symbols),
+                "apikey": api_key,
+            },
+            timeout=12,
         )
+        response.raise_for_status()
         data = response.json()
-        if not isinstance(data, dict):
-            return {}
 
-        # Batch responses are keyed by symbol; single-symbol responses are normalized too.
-        if "symbol" in data:
+        # Batch /quote returns a dictionary keyed by the requested symbol.
+        if isinstance(data, dict) and "symbol" in data:
             return {data.get("symbol"): data}
-        return data
+
+        return data if isinstance(data, dict) else {}
     except Exception:
         return {}
 
-def _quote_value(quotes, symbol, field):
-    item = quotes.get(_twelve_symbol(symbol), {})
+
+def _quote_value(quotes, ticker, field):
+    item = quotes.get(_twelve_symbol(ticker), {})
     try:
-        return float(item.get(field))
+        value = float(item.get(field))
+        return value if np.isfinite(value) else None
     except (TypeError, ValueError):
         return None
 
@@ -846,6 +888,7 @@ def _format_quote(value, decimals=2):
     if value is None or not np.isfinite(value):
         return "--"
     return f"{value:,.{decimals}f}"
+
 
 def _format_change(value):
     if value is None or not np.isfinite(value):
@@ -856,23 +899,13 @@ def _format_change(value):
 default_cfg = MARKET_UNIVERSE["🟡 Metals & Commodities"]["Gold (XAU/USD)"]
 global_df = load_ohlcv(default_cfg["yf"])
 global_price = (
-    float(global_df["Close"].iloc[-1]) if not global_df.empty else np.nan
+    float(global_df["Close"].iloc[-1]) if not global_df.empty else 0.0
 )
 
-# Top Ticker Bar — persistent sliding marquee (all 5 assets, seamless loop, pauses on hover)
-st.markdown(
-    """
-    <style>
-    .st-key-ssad_ticker_wrap {
-        position: sticky !important; top: 0 !important; z-index: 99997 !important;
-        margin-bottom: 10px !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+# Live ticker values from Twelve Data. UI markup remains unchanged.
 _ticker_symbols = ["GC=F", "BTC-USD", "^NSEI", "SPX", "EURUSD=X"]
 _ticker_quotes = get_twelve_quotes(_ticker_symbols)
+
 _xau = _quote_value(_ticker_quotes, "GC=F", "close")
 _xau_chg = _quote_value(_ticker_quotes, "GC=F", "percent_change")
 _btc = _quote_value(_ticker_quotes, "BTC-USD", "close")
@@ -887,6 +920,18 @@ _eurusd_chg = _quote_value(_ticker_quotes, "EURUSD=X", "percent_change")
 def _ticker_change_class(value):
     return "up" if value is not None and value >= 0 else "down"
 
+# Top Ticker Bar — persistent sliding marquee (all 5 assets, seamless loop, pauses on hover)
+st.markdown(
+    """
+    <style>
+    .st-key-ssad_ticker_wrap {
+        position: sticky !important; top: 0 !important; z-index: 99997 !important;
+        margin-bottom: 10px !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 _TICKER_ITEMS = (
     f'<span class="tk-item">🟡 XAU/USD&nbsp;<b>${_format_quote(_xau)}</b>&nbsp;'
     f'<span class="{_ticker_change_class(_xau_chg)}">{_format_change(_xau_chg)}</span></span>'
