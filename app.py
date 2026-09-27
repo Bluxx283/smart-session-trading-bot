@@ -1453,7 +1453,7 @@ if st.session_state.active_tab == '📊 Dashboard':
     cards_html = "".join(floating_cards)
     st.markdown(
         f'<div class="ssad-floating-viewport"><div class="ssad-floating-track">'
-        f'{cards_html}{cards_html}'
+        f'{cards_html}'
         f'</div></div>',
         unsafe_allow_html=True,
     )
