@@ -1457,58 +1457,58 @@ if st.session_state.active_tab == '📊 Dashboard':
     )
 
     # Globe artwork embedded directly in this Python file — no separate PNG required.
-_globe_b64 = base64.b64encode(
-    Path(__file__).with_name("trading_hero.png").read_bytes()
-).decode("utf-8")
-_globe_src = f"data:image/png;base64,{_globe_b64}"
-    # Clean hero: no large chart and no right-side panel.
-hero_html = '''
-<div class="ssad-hero ssad-hero-clean">
-    <div class="ssad-hero-grid"></div>
-    <div class="ssad-hero-glow"></div>
-    <div class="ssad-hero-globe" aria-hidden="true">
-        <img src="__GLOBE_SRC__" alt="Global market network globe" />
-    </div>
-    <div class="ssad-hero-copy">
-        <div class="ssad-eyebrow">QUANT TRADING TERMINAL <span>•</span> SESSION INTELLIGENCE</div>
-        <h1>Smart Session<br/><span>Anomaly Detector</span></h1>
-        <p>Multi-asset market intelligence, anomaly detection, execution controls and systematic strategy research — all in one professional workspace.</p>
-        <div class="ssad-chip-row">
-            <span class="ssad-chip live">● ML ENGINE ONLINE</span>
-            <span class="ssad-chip blue">◎ MULTI-MARKET</span>
-            <span class="ssad-chip purple">◷ MULTI-TIMEFRAME ANALYSIS</span>
-            <span class="ssad-chip cyan">↗ FLEXIBLE EXECUTION</span>
+    _globe_b64 = base64.b64encode(
+        Path(__file__).with_name("trading_hero.png").read_bytes()
+    ).decode("utf-8")
+    _globe_src = f"data:image/png;base64,{_globe_b64}"
+        # Clean hero: no large chart and no right-side panel.
+    hero_html = '''
+    <div class="ssad-hero ssad-hero-clean">
+        <div class="ssad-hero-grid"></div>
+        <div class="ssad-hero-glow"></div>
+        <div class="ssad-hero-globe" aria-hidden="true">
+            <img src="__GLOBE_SRC__" alt="Global market network globe" />
         </div>
-        <div class="ssad-feature-line">
-            <span>◉ LIVE MARKET DATA</span><b>•</b>
-            <span>♧ ANOMALY MONITORING</span><b>•</b>
-            <span>◎ SIGNAL GENERATION</span>
+        <div class="ssad-hero-copy">
+            <div class="ssad-eyebrow">QUANT TRADING TERMINAL <span>•</span> SESSION INTELLIGENCE</div>
+            <h1>Smart Session<br/><span>Anomaly Detector</span></h1>
+            <p>Multi-asset market intelligence, anomaly detection, execution controls and systematic strategy research — all in one professional workspace.</p>
+            <div class="ssad-chip-row">
+                <span class="ssad-chip live">● ML ENGINE ONLINE</span>
+                <span class="ssad-chip blue">◎ MULTI-MARKET</span>
+                <span class="ssad-chip purple">◷ MULTI-TIMEFRAME ANALYSIS</span>
+                <span class="ssad-chip cyan">↗ FLEXIBLE EXECUTION</span>
+            </div>
+            <div class="ssad-feature-line">
+                <span>◉ LIVE MARKET DATA</span><b>•</b>
+                <span>♧ ANOMALY MONITORING</span><b>•</b>
+                <span>◎ SIGNAL GENERATION</span>
+            </div>
         </div>
+        <div class="ssad-hero-orbit orbit-one"></div>
+        <div class="ssad-hero-orbit orbit-two"></div>
+        <div class="ssad-hero-node node-one"></div>
+        <div class="ssad-hero-node node-two"></div>
+        <div class="ssad-hero-node node-three"></div>
     </div>
-    <div class="ssad-hero-orbit orbit-one"></div>
-    <div class="ssad-hero-orbit orbit-two"></div>
-    <div class="ssad-hero-node node-one"></div>
-    <div class="ssad-hero-node node-two"></div>
-    <div class="ssad-hero-node node-three"></div>
-</div>
-'''
-hero_html = hero_html.replace("__GLOBE_SRC__", _globe_src)
-st.markdown(hero_html, unsafe_allow_html=True)
-
-st.markdown('<div class="ssad-section-title ssad-section-title-spaced">Workspace</div>', unsafe_allow_html=True)
-actions = [
-    ('chart','Chart Analysis','Candlesticks, indicators, anomaly zones and execution controls.','Open Charts →','📈 Chart Analysis'),
-    ('risk','Pip & Risk Engine','Position sizing, risk-to-reward and exposure planning.','Open Calculator →','🧮 Pip & Risk Calculator'),
-    ('broker','Flexible Execution','Connect paper, live or supported funded/broker accounts.','Open Gateway →','⚡ Broker Gateway'),
-    ('quant','Quant Lab','Idea → build → backtest → validate → deploy systematic research.','Open Quant Lab →','🧪 Quant Lab'),
-]
-qa = st.columns(4, gap='medium')
-for col, (kind, title, desc, btn, target) in zip(qa, actions):
-    with col:
-        st.markdown(f'<div class="ssad-action-card ssad-action-card-compact"><div class="art">{action_art(kind)}</div><h3>{title}</h3><p>{desc}</p></div>', unsafe_allow_html=True)
-        st.button(btn, key=f'pro_qa_{kind}', use_container_width=True, on_click=switch_page, args=(target,))
-
-st.markdown('<div class="ssad-footer-note">Live prices are shown from the existing market-feed configuration. Instrument availability and execution mode depend on the connected data/broker services.</div>', unsafe_allow_html=True)
+    '''
+    hero_html = hero_html.replace("__GLOBE_SRC__", _globe_src)
+    st.markdown(hero_html, unsafe_allow_html=True)
+    
+    st.markdown('<div class="ssad-section-title ssad-section-title-spaced">Workspace</div>', unsafe_allow_html=True)
+    actions = [
+        ('chart','Chart Analysis','Candlesticks, indicators, anomaly zones and execution controls.','Open Charts →','📈 Chart Analysis'),
+        ('risk','Pip & Risk Engine','Position sizing, risk-to-reward and exposure planning.','Open Calculator →','🧮 Pip & Risk Calculator'),
+        ('broker','Flexible Execution','Connect paper, live or supported funded/broker accounts.','Open Gateway →','⚡ Broker Gateway'),
+        ('quant','Quant Lab','Idea → build → backtest → validate → deploy systematic research.','Open Quant Lab →','🧪 Quant Lab'),
+    ]
+    qa = st.columns(4, gap='medium')
+    for col, (kind, title, desc, btn, target) in zip(qa, actions):
+        with col:
+            st.markdown(f'<div class="ssad-action-card ssad-action-card-compact"><div class="art">{action_art(kind)}</div><h3>{title}</h3><p>{desc}</p></div>', unsafe_allow_html=True)
+            st.button(btn, key=f'pro_qa_{kind}', use_container_width=True, on_click=switch_page, args=(target,))
+    
+    st.markdown('<div class="ssad-footer-note">Live prices are shown from the existing market-feed configuration. Instrument availability and execution mode depend on the connected data/broker services.</div>', unsafe_allow_html=True)
 
 
 # ==========================================
