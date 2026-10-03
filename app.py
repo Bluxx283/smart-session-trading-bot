@@ -94,29 +94,54 @@ def _binance_ws_worker(streams):
             time.sleep(5)
             continue
 
-
-def _finnhub_ws_worker(api_key, symbols):
-    """Keeps a Finnhub trade-tick WebSocket open (needs a free API key)."""
+def _twelvedata_ws_worker(api_key, symbols):
+    """Stream price updates from Twelve Data WebSocket."""
     if websocket is None or not api_key:
         return
-    url = f"wss://ws.finnhub.io?token={api_key}"
+
+    url = f"wss://ws.twelvedata.com/v1/quotes/price?apikey={api_key}"
+
+    symbol_map = {
+        "XAU/USD": "OANDA:XAU_USD",
+        "EUR/USD": "OANDA:EUR_USD",
+        "GBP/USD": "OANDA:GBP_USD",
+        "USD/JPY": "OANDA:USD_JPY",
+        "AAPL": "AAPL",
+        "NVDA": "NVDA",
+        "MSFT": "MSFT",
+        "TSLA": "TSLA",
+        "AMZN": "AMZN",
+    }
+
     while True:
         try:
-            ws = websocket.create_connection(url, timeout=10)
-            for s in symbols:
-                ws.send(json.dumps({"type": "subscribe", "symbol": s}))
-            while True:
-                raw = ws.recv()
-                msg = json.loads(raw)
-                if msg.get("type") == "trade":
-                    for t in msg.get("data", []):
-                        sym, price = t.get("s"), t.get("p")
-                        if sym and price:
-                            _update_live(sym, float(price), source="finnhub_ws")
-        except Exception:
-            time.sleep(5)
-            continue
+            ws = websocket.create_connection(url, timeout=15)
 
+            ws.send(json.dumps({
+                "action": "subscribe",
+                "params": {
+                    "symbols": ",".join(symbols)
+                }
+            }))
+
+            while True:
+                msg = json.loads(ws.recv())
+
+                if msg.get("event") == "price":
+                    symbol = msg.get("symbol")
+                    price = msg.get("price")
+
+                    key = symbol_map.get(symbol)
+
+                    if key and price is not None:
+                        _update_live(
+                            key,
+                            float(price),
+                            source="twelvedata_ws"
+                        )
+
+        except Exception as e:
+            time.sleep(5)
 
 # ------------------------------------------------------------
 # Market-hours engine — is this asset's market actually open?
