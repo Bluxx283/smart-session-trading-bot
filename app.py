@@ -1395,7 +1395,7 @@ st.caption(
     "NIFTY 50 continues using the existing fallback data."
 )
 
-            st.divider()
+st.divider()
             st.markdown("#### 🔔 Persistent Alerts")
             st.session_state.persistent_monitor_enabled = st.toggle(
                 "Enable background monitor configuration",
