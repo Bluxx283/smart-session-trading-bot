@@ -1492,23 +1492,23 @@ hero_html = '''
     <div class="ssad-hero-node node-three"></div>
 </div>
 '''
-    hero_html = hero_html.replace("__GLOBE_SRC__", _globe_src)
-    st.markdown(hero_html, unsafe_allow_html=True)
+hero_html = hero_html.replace("__GLOBE_SRC__", _globe_src)
+st.markdown(hero_html, unsafe_allow_html=True)
 
-    st.markdown('<div class="ssad-section-title ssad-section-title-spaced">Workspace</div>', unsafe_allow_html=True)
-    actions = [
-        ('chart','Chart Analysis','Candlesticks, indicators, anomaly zones and execution controls.','Open Charts →','📈 Chart Analysis'),
-        ('risk','Pip & Risk Engine','Position sizing, risk-to-reward and exposure planning.','Open Calculator →','🧮 Pip & Risk Calculator'),
-        ('broker','Flexible Execution','Connect paper, live or supported funded/broker accounts.','Open Gateway →','⚡ Broker Gateway'),
-        ('quant','Quant Lab','Idea → build → backtest → validate → deploy systematic research.','Open Quant Lab →','🧪 Quant Lab'),
-    ]
-    qa = st.columns(4, gap='medium')
-    for col, (kind, title, desc, btn, target) in zip(qa, actions):
-        with col:
-            st.markdown(f'<div class="ssad-action-card ssad-action-card-compact"><div class="art">{action_art(kind)}</div><h3>{title}</h3><p>{desc}</p></div>', unsafe_allow_html=True)
-            st.button(btn, key=f'pro_qa_{kind}', use_container_width=True, on_click=switch_page, args=(target,))
+st.markdown('<div class="ssad-section-title ssad-section-title-spaced">Workspace</div>', unsafe_allow_html=True)
+actions = [
+    ('chart','Chart Analysis','Candlesticks, indicators, anomaly zones and execution controls.','Open Charts →','📈 Chart Analysis'),
+    ('risk','Pip & Risk Engine','Position sizing, risk-to-reward and exposure planning.','Open Calculator →','🧮 Pip & Risk Calculator'),
+    ('broker','Flexible Execution','Connect paper, live or supported funded/broker accounts.','Open Gateway →','⚡ Broker Gateway'),
+    ('quant','Quant Lab','Idea → build → backtest → validate → deploy systematic research.','Open Quant Lab →','🧪 Quant Lab'),
+]
+qa = st.columns(4, gap='medium')
+for col, (kind, title, desc, btn, target) in zip(qa, actions):
+    with col:
+        st.markdown(f'<div class="ssad-action-card ssad-action-card-compact"><div class="art">{action_art(kind)}</div><h3>{title}</h3><p>{desc}</p></div>', unsafe_allow_html=True)
+        st.button(btn, key=f'pro_qa_{kind}', use_container_width=True, on_click=switch_page, args=(target,))
 
-    st.markdown('<div class="ssad-footer-note">Live prices are shown from the existing market-feed configuration. Instrument availability and execution mode depend on the connected data/broker services.</div>', unsafe_allow_html=True)
+st.markdown('<div class="ssad-footer-note">Live prices are shown from the existing market-feed configuration. Instrument availability and execution mode depend on the connected data/broker services.</div>', unsafe_allow_html=True)
 
 
 # ==========================================
