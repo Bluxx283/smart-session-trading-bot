@@ -201,9 +201,11 @@ def status_badge(category):
 
 
 @st.cache_resource(show_spinner=False)
-def start_live_feeds(finnhub_key: str = ""):
-    """Starts the background WebSocket threads exactly once per server process."""
+def start_live_feeds(twelvedata_key: str = ""):
+    """Start Binance and Twelve Data WebSocket threads."""
     threads = []
+
+    # Binance live crypto feed
     t1 = threading.Thread(
         target=_binance_ws_worker,
         args=(["btcusdt@ticker", "ethusdt@ticker"],),
@@ -211,15 +213,31 @@ def start_live_feeds(finnhub_key: str = ""):
     )
     t1.start()
     threads.append(t1)
-    if finnhub_key:
+
+    # Twelve Data live market feed
+    if twelvedata_key:
+        symbols = [
+            "XAU/USD",
+            "EUR/USD",
+            "GBP/USD",
+            "USD/JPY",
+            "AAPL",
+            "NVDA",
+            "MSFT",
+            "TSLA",
+            "AMZN",
+        ]
+
         t2 = threading.Thread(
-            target=_finnhub_ws_worker,
-            args=(finnhub_key, ["OANDA:XAU_USD", "OANDA:EUR_USD", "AAPL", "NVDA"]),
+            target=_twelvedata_ws_worker,
+            args=(twelvedata_key, symbols),
             daemon=True,
         )
         t2.start()
         threads.append(t2)
+
     return threads
+
 
 # --- PAGE CONFIG ---
 st.set_page_config(
