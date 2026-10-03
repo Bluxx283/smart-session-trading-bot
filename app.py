@@ -16,6 +16,8 @@ import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
 from tradingview_ta import Interval, TA_Handler
 import yfinance as yf
+import base64
+from pathlib import Path
 
 try:
     import websocket  # pip install websocket-client
