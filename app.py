@@ -1462,36 +1462,36 @@ _globe_b64 = base64.b64encode(
 ).decode("utf-8")
 _globe_src = f"data:image/png;base64,{_globe_b64}"
     # Clean hero: no large chart and no right-side panel.
-    hero_html = '''
-    <div class="ssad-hero ssad-hero-clean">
-        <div class="ssad-hero-grid"></div>
-        <div class="ssad-hero-glow"></div>
-        <div class="ssad-hero-globe" aria-hidden="true">
-            <img src="__GLOBE_SRC__" alt="Global market network globe" />
-        </div>
-        <div class="ssad-hero-copy">
-            <div class="ssad-eyebrow">QUANT TRADING TERMINAL <span>•</span> SESSION INTELLIGENCE</div>
-            <h1>Smart Session<br/><span>Anomaly Detector</span></h1>
-            <p>Multi-asset market intelligence, anomaly detection, execution controls and systematic strategy research — all in one professional workspace.</p>
-            <div class="ssad-chip-row">
-                <span class="ssad-chip live">● ML ENGINE ONLINE</span>
-                <span class="ssad-chip blue">◎ MULTI-MARKET</span>
-                <span class="ssad-chip purple">◷ MULTI-TIMEFRAME ANALYSIS</span>
-                <span class="ssad-chip cyan">↗ FLEXIBLE EXECUTION</span>
-            </div>
-            <div class="ssad-feature-line">
-                <span>◉ LIVE MARKET DATA</span><b>•</b>
-                <span>♧ ANOMALY MONITORING</span><b>•</b>
-                <span>◎ SIGNAL GENERATION</span>
-            </div>
-        </div>
-        <div class="ssad-hero-orbit orbit-one"></div>
-        <div class="ssad-hero-orbit orbit-two"></div>
-        <div class="ssad-hero-node node-one"></div>
-        <div class="ssad-hero-node node-two"></div>
-        <div class="ssad-hero-node node-three"></div>
+hero_html = '''
+<div class="ssad-hero ssad-hero-clean">
+    <div class="ssad-hero-grid"></div>
+    <div class="ssad-hero-glow"></div>
+    <div class="ssad-hero-globe" aria-hidden="true">
+        <img src="__GLOBE_SRC__" alt="Global market network globe" />
     </div>
-    '''
+    <div class="ssad-hero-copy">
+        <div class="ssad-eyebrow">QUANT TRADING TERMINAL <span>•</span> SESSION INTELLIGENCE</div>
+        <h1>Smart Session<br/><span>Anomaly Detector</span></h1>
+        <p>Multi-asset market intelligence, anomaly detection, execution controls and systematic strategy research — all in one professional workspace.</p>
+        <div class="ssad-chip-row">
+            <span class="ssad-chip live">● ML ENGINE ONLINE</span>
+            <span class="ssad-chip blue">◎ MULTI-MARKET</span>
+            <span class="ssad-chip purple">◷ MULTI-TIMEFRAME ANALYSIS</span>
+            <span class="ssad-chip cyan">↗ FLEXIBLE EXECUTION</span>
+        </div>
+        <div class="ssad-feature-line">
+            <span>◉ LIVE MARKET DATA</span><b>•</b>
+            <span>♧ ANOMALY MONITORING</span><b>•</b>
+            <span>◎ SIGNAL GENERATION</span>
+        </div>
+    </div>
+    <div class="ssad-hero-orbit orbit-one"></div>
+    <div class="ssad-hero-orbit orbit-two"></div>
+    <div class="ssad-hero-node node-one"></div>
+    <div class="ssad-hero-node node-two"></div>
+    <div class="ssad-hero-node node-three"></div>
+</div>
+'''
     hero_html = hero_html.replace("__GLOBE_SRC__", _globe_src)
     st.markdown(hero_html, unsafe_allow_html=True)
 
