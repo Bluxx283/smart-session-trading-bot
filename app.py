@@ -1394,7 +1394,6 @@ st.caption(
     "Market-hour badges reflect exchange trading hours. "
     "NIFTY 50 continues using the existing fallback data."
 )
-            )
 
             st.divider()
             st.markdown("#### 🔔 Persistent Alerts")
