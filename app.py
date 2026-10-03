@@ -1412,69 +1412,6 @@ st.caption(
     "Market-hour badges reflect exchange trading hours. "
     "NIFTY 50 continues using the existing fallback data."
 )
-st.divider()
-st.markdown("#### 🔔 Persistent Alerts")
-
-st.session_state.persistent_monitor_enabled = st.toggle(
-    "Enable background monitor configuration",
-    value=st.session_state.persistent_monitor_enabled,
-)
-
-st.session_state.telegram_bot_token = st.text_input(
-    "Telegram Bot Token",
-    value=st.session_state.telegram_bot_token,
-    type="password",
-)
-
-st.session_state.telegram_chat_id = st.text_input(
-    "Telegram Chat ID",
-    value=st.session_state.telegram_chat_id,
-)
-
-st.session_state.discord_webhook = st.text_input(
-    "Discord Webhook",
-    value=st.session_state.discord_webhook,
-    type="password",
-)
-
-st.session_state.alert_email = st.text_input(
-    "Alert Email",
-    value=st.session_state.alert_email,
-)
-
-st.markdown("#### 🤖 EA Auto-Execution")
-
-st.session_state.auto_ea_on_signal = st.toggle(
-    "Automatically let the EA act on approved signals",
-    value=st.session_state.auto_ea_on_signal,
-)
-
-st.session_state.ea_execution_mode = st.selectbox(
-    "EA Execution Mode",
-    ["PAPER", "LIVE"],
-    index=0 if st.session_state.ea_execution_mode == "PAPER" else 1,
-)
-
-st.session_state.broker_api_endpoint = st.text_input(
-    "Broker execution webhook (LIVE only)",
-    value=st.session_state.broker_api_endpoint,
-    placeholder="https://your-broker-bridge.example/order",
-)
-
-st.caption(
-    "PAPER records simulated EA trades. LIVE sends an authenticated "
-    "order payload to your configured broker/bridge endpoint."
-)
-
-if st.button("💾 Save Persistent Monitor Config", key="save_monitor_cfg"):
-    cfg_path = save_monitor_config()
-    st.success(f"Saved monitor configuration to {cfg_path}.")
-    st.caption(
-        "Run the separate monitor service to continue scanning "
-        "after this web app is closed."
-    )
-
-
 # --- DASHBOARD VISUAL HELPERS ---
 def sparkline_svg(points, stroke='#68a8ff', fill='rgba(104,168,255,.10)'):
     pts=[float(x) for x in points]; mn,mx=min(pts),max(pts); span=(mx-mn) or 1
