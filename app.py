@@ -320,10 +320,14 @@ def page_header(subtitle):
 # Auto-refresh the UI often enough that live WebSocket prices feel live
 st_autorefresh(interval=3000, key="ssad_feed_sync")
 
-if "finnhub_api_key" not in st.session_state:
-    st.session_state.finnhub_api_key = ""
-# Start (or reuse) the background WebSocket threads for this process.
-_live_threads = start_live_feeds(st.session_state.finnhub_api_key)
+if "twelvedata_api_key" not in st.session_state:
+    st.session_state.twelvedata_api_key = os.getenv(
+        "TWELVE_DATA_API_KEY", ""
+    )
+
+_live_threads = start_live_feeds(
+    st.session_state.twelvedata_api_key
+)
 
 # --- SESSION STATE INITIALIZATION ---
 if "active_tab" not in st.session_state:
@@ -1348,31 +1352,48 @@ if st.session_state.bot_open:
             )
 
             st.divider()
-            st.markdown("#### 📡 Live Market Data (WebSocket)")
-            st.caption(
-                "BTC/USDT and ETH/USDT are already streaming live via Binance's free "
-                "WebSocket — no key needed. Add a free Finnhub key to also stream "
-                "XAU/USD, EUR/USD, AAPL and NVDA live. Get one at finnhub.io."
-            )
-            new_finnhub_key = st.text_input(
-                "Finnhub API key (optional)",
-                value=st.session_state.finnhub_api_key,
-                type="password",
-                key="finnhub_key_input",
-            )
-            if new_finnhub_key != st.session_state.finnhub_api_key:
-                st.session_state.finnhub_api_key = new_finnhub_key
-                st.rerun()
-            _gold_status = get_live("OANDA:XAU_USD")
-            _btc_status = get_live("BTCUSDT")
-            fs1, fs2 = st.columns(2)
-            fs1.metric("BTC/USDT WebSocket", "🟢 Connected" if _btc_status else "⏳ Connecting")
-            fs2.metric("XAU/USD WebSocket", "🟢 Connected" if _gold_status else ("⏳ Connecting" if st.session_state.finnhub_api_key else "⚪ No key"))
-            st.caption(
-                "The ● OPEN / ● CLOSED badges next to each instrument reflect that "
-                "market's real trading hours, not the WebSocket connection above — "
-                "gold/forex trade nearly 24/5, crypto trades 24/7, and NIFTY/US "
-                "stocks only trade during their exchange session."
+st.markdown("#### 📡 Live Market Data (WebSocket)")
+
+st.caption(
+    "BTC/USDT and ETH/USDT stream via Binance. "
+    "Gold, forex and supported US stocks use Twelve Data."
+)
+
+new_twelvedata_key = st.text_input(
+    "Twelve Data API key (optional)",
+    value=st.session_state.twelvedata_api_key,
+    type="password",
+    key="twelvedata_key_input",
+)
+
+if new_twelvedata_key != st.session_state.twelvedata_api_key:
+    st.session_state.twelvedata_api_key = new_twelvedata_key
+    st.rerun()
+
+_gold_status = get_live("OANDA:XAU_USD")
+_btc_status = get_live("BTCUSDT")
+
+fs1, fs2 = st.columns(2)
+
+fs1.metric(
+    "BTC/USDT WebSocket",
+    "🟢 Connected" if _btc_status else "⏳ Connecting"
+)
+
+fs2.metric(
+    "XAU/USD WebSocket",
+    "🟢 Connected" if _gold_status
+    else (
+        "⏳ Connecting"
+        if st.session_state.twelvedata_api_key
+        else "⚪ No key"
+    )
+)
+
+st.caption(
+    "Market-hour badges reflect exchange trading hours. "
+    "NIFTY 50 continues using the existing fallback data."
+)
             )
 
             st.divider()
