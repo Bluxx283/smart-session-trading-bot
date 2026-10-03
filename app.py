@@ -237,7 +237,14 @@ st.markdown(
     .ssad-floating-viewport:hover .ssad-floating-track{animation-play-state:paused;}
     .ssad-floating-market{position:relative;flex:0 0 154px;min-width:154px;padding:11px 13px 12px;border:1px solid rgba(104,168,255,.18);border-radius:15px;background:linear-gradient(145deg,rgba(18,27,43,.88),rgba(8,12,21,.88));box-shadow:0 10px 28px rgba(0,0,0,.20),inset 0 1px 0 rgba(255,255,255,.03);backdrop-filter:blur(12px);transition:transform .18s ease,border-color .18s ease;}
     .ssad-floating-market:hover{transform:translateY(-3px);border-color:rgba(104,168,255,.38);}
-    @keyframes ssadMarketMarquee{from{transform:translateX(0)}to{transform:translateX(calc(-50% - 5px))}}
+@keyframes ssadMarketMarquee {
+    from {
+        transform: translateX(0);
+    }
+    to {
+        transform: translateX(-50%);
+    }
+}
     .ssad-floating-top{display:flex;align-items:center;gap:6px;color:#d8e3f3;font-size:.70rem;font-weight:800;white-space:nowrap;}
     .ssad-floating-top .ssad-badge{margin-left:auto;font-size:.56rem;padding:3px 5px;}
     .ssad-floating-dot{width:6px;height:6px;border-radius:50%;background:#39e58c;box-shadow:0 0 9px rgba(57,229,140,.8);flex:0 0 auto;}
@@ -1460,7 +1467,7 @@ if st.session_state.active_tab == '📊 Dashboard':
     cards_html = "".join(floating_cards)
     st.markdown(
         f'<div class="ssad-floating-viewport"><div class="ssad-floating-track">'
-        f'{cards_html}'
+        f'{cards_html}{cards_html}'
         f'</div></div>',
         unsafe_allow_html=True,
     )
