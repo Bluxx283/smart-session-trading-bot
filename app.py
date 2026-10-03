@@ -1437,6 +1437,13 @@ if st.session_state.active_tab == '📊 Dashboard':
         _floating_market("OANDA:EUR_USD", "EUR/USD", "forex", "EURUSD=X", small=True),
         _floating_market("AAPL", "AAPL", "us_equity", "AAPL"),
         _floating_market("", "NIFTY 50", "nse", "^NSEI", no_currency=True),
+        _floating_market("ETHUSDT", "ETH/USDT", "crypto", "ETH-USD"),
+        _floating_market("NVDA", "NVDA", "us_equity", "NVDA"),
+       _floating_market("MSFT", "MSFT", "us_equity", "MSFT"),
+       _floating_market("TSLA", "TSLA", "us_equity", "TSLA"),
+       _floating_market("OANDA:GBP_USD", "GBP/USD", "forex", "GBPUSD=X"),
+       _floating_market("OANDA:USD_JPY", "USD/JPY", "forex", "USDJPY=X"),
+       _floating_market("AMZN", "AMZN", "us_equity", "AMZN"),
     ]
 
     floating_cards = []
