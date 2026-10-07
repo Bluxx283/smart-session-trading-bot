@@ -944,21 +944,21 @@ for group_name, items in NAV_GROUPS.items():
 # ------------------------------------------------------------
 # SETTINGS
 # ------------------------------------------------------------
-st.markdown(
-    '<div class="ssad-nav-group-label">SYSTEM</div>',
-    unsafe_allow_html=True
-)
+     st.markdown(
+        '<div class="ssad-nav-group-label">SYSTEM</div>',
+        unsafe_allow_html=True
+    )
 
-is_settings_active = st.session_state.active_tab == "⚙️ Settings"
+    is_settings_active = st.session_state.active_tab == "⚙️ Settings"
 
-st.button(
-    "⚙️ Settings",
-    key="sidebar_settings_button",
-    use_container_width=True,
-    type="primary" if is_settings_active else "secondary",
-    on_click=switch_page,
-    args=("⚙️ Settings",),
-)
+    st.button(
+        "⚙️ Settings",
+        key="sidebar_settings_button",
+        use_container_width=True,
+        type="primary" if is_settings_active else "secondary",
+        on_click=switch_page,
+        args=("⚙️ Settings",),
+    )
 
     st.divider()
     with st.container(key="ssad_footer_metrics"):
