@@ -2430,4 +2430,4 @@ elif st.session_state.active_tab == "⚙️ Settings":
     st.selectbox("Base Currency", ["USD ($)", "INR (₹)", "EUR (€)"])
     st.divider()
     st.markdown("#### 🧩 Platform Modules")
-    st.write({"Chart Analysis": "Technical chart + direct execution", "EA Engine": "Builder / Library / Deployment", "Backtesting": "Historical simulation + metrics", "Broker Bridge": st.session_state.broker_name, "Default Execution": st.session_state.broker_api_mode}
+    st.write({"Chart Analysis": "Technical chart + direct execution", "EA Engine": "Builder / Library / Deployment", "Backtesting": "Historical simulation + metrics", "Broker Bridge": st.session_state.broker_name, "Default Execution": st.session_state.broker_api_mode})
