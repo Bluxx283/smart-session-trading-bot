@@ -947,7 +947,7 @@ for group_name, items in NAV_GROUPS.items():
      st.markdown(
         '<div class="ssad-nav-group-label">SYSTEM</div>',
         unsafe_allow_html=True
-    )
+     )
 
     is_settings_active = st.session_state.active_tab == "⚙️ Settings"
 
