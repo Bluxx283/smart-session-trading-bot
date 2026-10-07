@@ -1511,34 +1511,11 @@ if st.session_state.active_tab == '📊 Dashboard':
     # These values come from the app's existing live feed/session
     # state. No placeholder trading numbers are injected.
     # ------------------------------------------------------------
-    _ws_live = (
-        get_live("XAU/USD")
-        or get_live("OANDA:XAU_USD")
-    )
+    # IMPORTANT: use the exact same live XAU/USD object as the floating market
+    # card. This keeps price and daily percentage synchronized everywhere.
+    _ws_live = get_live("OANDA:XAU_USD") or get_live("XAU/USD")
     _ws_price = float(_ws_live["price"]) if _ws_live else float(global_price)
-
-    # Calculate the Workspace percentage against the real previous daily close.
-    # The Twelve Data price WebSocket sends the live price but not a daily
-    # percentage field, so using _LIVE_PRICES["pct"] would compare against the
-    # previous tick and can appear as 0.00%.
-    _ws_prev_close = None
-    try:
-        _daily_ws = load_ohlcv(default_cfg["yf"], period="5d", interval="1d", fallback_price=_ws_price)
-        if _daily_ws is not None and not _daily_ws.empty:
-            _daily_closes = pd.to_numeric(_daily_ws["Close"], errors="coerce").dropna()
-            if len(_daily_closes) >= 2:
-                _ws_prev_close = float(_daily_closes.iloc[-2])
-            elif len(_daily_closes) == 1:
-                _ws_prev_close = float(_daily_closes.iloc[-1])
-    except Exception:
-        _ws_prev_close = None
-
-    if _ws_prev_close and _ws_prev_close > 0:
-        _ws_pct = ((_ws_price - _ws_prev_close) / _ws_prev_close) * 100.0
-    elif _ws_live:
-        _ws_pct = float(_ws_live.get("pct", 0.0))
-    else:
-        _ws_pct = 0.0
+    _ws_pct = float(_ws_live.get("pct", 0.0)) if _ws_live else 0.0
 
     _ws_hist = (_ws_live.get("history", []) if _ws_live else [])
     if len(_ws_hist) < 2 and global_df is not None and not global_df.empty:
