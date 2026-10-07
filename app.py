@@ -297,7 +297,7 @@ st.markdown(
     .ssad-floating-move{font-size:.67rem;font-weight:800;margin-top:2px;}
     .ssad-floating-market .ssad-mini-chart{right:6px;bottom:5px;width:42%;height:34px;opacity:.6;}
     .ssad-floating-add{flex:0 0 42px;align-self:center;width:42px!important;height:42px!important;padding:0!important;border-radius:50%!important;font-size:1.35rem!important;color:#9bb1cf!important;background:rgba(255,255,255,.035)!important;}
-    .ssad-hero-clean{min-height:390px;margin-top:2px;background:radial-gradient(circle at 82% 38%,rgba(40,126,255,.18),transparent 25%),radial-gradient(circle at 70% 78%,rgba(57,229,140,.10),transparent 24%),linear-gradient(120deg,rgba(17,23,36,.98),rgba(7,10,17,.94));}
+    .ssad-hero-clean{min-height:500px;margin-top:2px;background:radial-gradient(circle at 82% 38%,rgba(40,126,255,.18),transparent 25%),radial-gradient(circle at 70% 78%,rgba(57,229,140,.10),transparent 24%),linear-gradient(120deg,rgba(17,23,36,.98),rgba(7,10,17,.94));}
     .ssad-hero-clean .ssad-hero-copy{max-width:78%;padding:58px 52px;}
     .ssad-hero-clean .ssad-eyebrow span{color:#65758d;margin:0 6px;}
     .ssad-hero-clean h1{font-size:clamp(2.7rem,5vw,4.6rem);letter-spacing:-2.8px;margin:12px 0 17px;}
@@ -309,79 +309,6 @@ st.markdown(
     .ssad-feature-line{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:27px;color:#94a8c1;font-size:.68rem;font-weight:800;letter-spacing:.8px;}
     .ssad-feature-line span:first-child{color:#69e8b1;}
     .ssad-feature-line b{color:#53657e;}
-    /* =========================================================
-   HERO — FULL BACKGROUND IMAGE
-   ========================================================= */
-
-.ssad-hero {
-    position: relative;
-    min-height: 520px;
-    width: 100%;
-    overflow: hidden;
-    border-radius: 0 0 24px 24px;
-
-    background-image:
-        linear-gradient(
-            90deg,
-            rgba(5, 10, 22, 0.98) 0%,
-            rgba(5, 10, 22, 0.90) 35%,
-            rgba(5, 10, 22, 0.55) 65%,
-            rgba(5, 10, 22, 0.30) 100%
-        ),
-        url("__GLOBE_SRC__");
-
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
-}
-
-/* extra dark cinematic layer */
-.ssad-hero::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background:
-        radial-gradient(
-            circle at 75% 45%,
-            rgba(0, 190, 255, 0.12),
-            transparent 35%
-        ),
-        linear-gradient(
-            180deg,
-            rgba(4, 8, 18, 0.15),
-            rgba(4, 8, 18, 0.45)
-        );
-    pointer-events: none;
-}
-
-/* keep all hero content above background */
-.ssad-hero-copy {
-    position: relative;
-    z-index: 5;
-    max-width: 850px;
-}
-
-/* REMOVE the old separate image */
-.ssad-hero-globe {
-    display: none !important;
-}
-
-/* decorative elements */
-.ssad-hero-grid,
-.ssad-hero-glow,
-.ssad-hero-orbit,
-.ssad-hero-node {
-    z-index: 2;
-}
-
-.ssad-hero h1,
-.ssad-hero p,
-.ssad-hero .ssad-chip-row,
-.ssad-hero .ssad-feature-line,
-.ssad-hero .ssad-eyebrow {
-    position: relative;
-    z-index: 5;
-}
     .ssad-hero-glow{position:absolute;right:9%;top:17%;width:270px;height:270px;border-radius:50%;background:radial-gradient(circle,rgba(68,155,255,.11),transparent 67%);filter:blur(2px);}
     .ssad-hero-orbit{position:absolute;border:1px solid rgba(87,155,255,.18);border-radius:50%;pointer-events:none;}
     .ssad-hero-orbit.orbit-one{width:310px;height:310px;right:5%;top:11%;transform:rotate(-22deg);}
@@ -392,8 +319,6 @@ st.markdown(
     .ssad-action-card-compact{min-height:164px;padding:17px;}
     .ssad-action-card-compact .art{height:45px;margin-bottom:6px;}
     .ssad-action-card-compact p{min-height:42px;}
-    @media (max-width: 900px){.ssad-hero-clean{min-height:430px;}.ssad-hero-clean .ssad-hero-copy{max-width:100%;padding:42px 30px;}.ssad-hero-globe{width:390px;height:390px;right:-90px;top:8%;opacity:.42;}.ssad-hero-orbit,.ssad-hero-glow{opacity:.45;right:-100px;}.ssad-floating-market{min-width:145px;}}
-    @media (max-width: 650px){.ssad-hero-clean{min-height:470px;}.ssad-hero-clean .ssad-hero-copy{padding:34px 22px;}.ssad-hero-clean h1{font-size:2.5rem;}.ssad-feature-line{gap:8px;font-size:.62rem;}.ssad-hero-globe{width:320px;height:320px;right:-115px;top:12%;opacity:.28;}.ssad-floating-market{min-width:138px;}.ssad-chip{font-size:.67rem;}}
     </style>
     """,
     unsafe_allow_html=True,
@@ -804,19 +729,10 @@ def run_strategy_backtest(df, fast, slow, risk_pct=1.0, rr=2.0, starting_balance
     win_rate = wins / len(trade_df) * 100 if len(trade_df) else 0.0
     return {"equity":equity,"trades":trade_df,"net_profit":float(balance-starting_balance),"win_rate":win_rate,"mdd":mdd,"sharpe":sharpe}
 
-# ============================================================
-# SIDEBAR NAVIGATION
-# Display names are separated from the existing internal pages.
-# This keeps the existing app functionality intact.
-# ============================================================
+# Navigation, grouped for the sidebar
 NAV_GROUPS = {
-    "CORE": [
-        ("⌂ Home", "📊 Dashboard"),
-    ],
-    "MARKET": [
-        # Markets opens the existing Chart Analysis workspace.
-        ("📊 Markets", "📈 Chart Analysis"),
-    ],
+    "CORE": [("⌂ Home", "📊 Dashboard")],
+    "MARKET": [("📊 Markets", "📈 Chart Analysis")],
     "INTELLIGENCE": [
         ("◉ Anomaly Detection", "📈 Chart Analysis"),
         ("ϟ Signals", "📈 Chart Analysis"),
@@ -825,13 +741,7 @@ NAV_GROUPS = {
         ("▤ Journal", "📊 Dashboard"),
     ],
 }
-
-NAV_OPTIONS = [
-    internal_page
-    for group_items in NAV_GROUPS.values()
-    for _, internal_page in group_items
-] + ["⚙️ Settings"]
-
+NAV_OPTIONS = [internal_page for group_items in NAV_GROUPS.values() for _, internal_page in group_items] + ["⚙️ Settings"]
 
 # Callback to switch pages from Quick Action buttons
 def switch_page(target_page):
@@ -945,14 +855,9 @@ with st.sidebar:
     )
 
     for group_name, items in NAV_GROUPS.items():
-        st.markdown(
-            f'<div class="ssad-nav-group-label">{group_name}</div>',
-            unsafe_allow_html=True,
-        )
-
+        st.markdown(f'<div class="ssad-nav-group-label">{group_name}</div>', unsafe_allow_html=True)
         for display_name, internal_page in items:
             is_active = st.session_state.active_tab == internal_page
-
             st.button(
                 display_name,
                 key=f"sidebar_nav_{group_name}_{display_name}",
@@ -962,13 +867,8 @@ with st.sidebar:
                 args=(internal_page,),
             )
 
-    st.markdown(
-        '<div class="ssad-nav-group-label">SYSTEM</div>',
-        unsafe_allow_html=True,
-    )
-
+    st.markdown('<div class="ssad-nav-group-label">SYSTEM</div>', unsafe_allow_html=True)
     is_settings_active = st.session_state.active_tab == "⚙️ Settings"
-
     st.button(
         "⚙️ Settings",
         key="sidebar_settings_button",
@@ -1555,12 +1455,9 @@ if st.session_state.active_tab == '📊 Dashboard':
     _globe_src = f"data:image/png;base64,{_globe_b64}"
         # Clean hero: no large chart and no right-side panel.
     hero_html = '''
-    <div class="ssad-hero ssad-hero-clean">
+    <div class="ssad-hero ssad-hero-clean" style="background-image: linear-gradient(90deg, rgba(5,10,22,.98) 0%, rgba(5,10,22,.90) 34%, rgba(5,10,22,.58) 65%, rgba(5,10,22,.30) 100%), url(__GLOBE_SRC__); background-size: cover; background-position: center; background-repeat: no-repeat;">
         <div class="ssad-hero-grid"></div>
         <div class="ssad-hero-glow"></div>
-        <div class="ssad-hero-globe" aria-hidden="true">
-            <img src="__GLOBE_SRC__" alt="Global market network globe" />
-        </div>
         <div class="ssad-hero-copy">
             <div class="ssad-eyebrow">QUANT TRADING TERMINAL <span>•</span> SESSION INTELLIGENCE</div>
             <h1>Smart Session<br/><span>Anomaly Detector</span></h1>
@@ -1589,10 +1486,10 @@ if st.session_state.active_tab == '📊 Dashboard':
     
     st.markdown('<div class="ssad-section-title ssad-section-title-spaced">Workspace</div>', unsafe_allow_html=True)
     actions = [
-        ('chart','Chart Analysis','Candlesticks, indicators, anomaly zones and execution controls.','Open Charts →','📈 Chart Analysis'),
-        ('risk','Pip & Risk Engine','Position sizing, risk-to-reward and exposure planning.','Open Calculator →','🧮 Pip & Risk Calculator'),
-        ('broker','Flexible Execution','Connect paper, live or supported funded/broker accounts.','Open Gateway →','⚡ Broker Gateway'),
-        ('quant','Quant Lab','Idea → build → backtest → validate → deploy systematic research.','Open Quant Lab →','🧪 Quant Lab'),
+        ('chart','Markets & Analysis','Candlesticks, indicators, anomaly zones and execution controls.','Open Markets →','📈 Chart Analysis'),
+        ('risk','Risk Management','Position sizing, risk-to-reward and exposure planning.','Calculate Risk →','🧮 Pip & Risk Calculator'),
+        ('broker','Trade Execution','Connect paper, live or supported funded/broker accounts.','Open Execution →','⚡ Broker Gateway'),
+        ('quant','Strategy Lab','Idea → build → backtest → validate → deploy systematic research.','Open Strategy Lab →','🧪 Quant Lab'),
     ]
     qa = st.columns(4, gap='medium')
     for col, (kind, title, desc, btn, target) in zip(qa, actions):
