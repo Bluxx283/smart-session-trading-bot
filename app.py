@@ -823,81 +823,67 @@ def send_chat_message(user_text, context_summary=""):
     st.session_state.chat_messages.append({"role": "assistant", "content": reply})
 
 
-# --- SIDEBAR: GLASSMORPHISM + GROUPED NAVIGATION ---
+# --- SIDEBAR: POLISHED GROUPED NAVIGATION ---
 st.markdown(
     """
     <style>
-    /* Hide the sidebar collapse / double-chevron control */
-    [data-testid="stSidebarCollapseButton"],
-    [data-testid="stSidebar"] button[aria-label*="Collapse"],
-    [data-testid="stSidebar"] button[aria-label*="Expand"],
-    [data-testid="stSidebar"] [data-testid="stSidebarNavCollapseButton"] {
-        display: none !important;
-        visibility: hidden !important;
-        width: 0 !important;
-        height: 0 !important;
-        pointer-events: none !important;
-    }
     [data-testid="stSidebar"] {
-        background: rgba(10, 14, 24, 0.72) !important;
-        backdrop-filter: blur(18px) saturate(150%) !important;
-        -webkit-backdrop-filter: blur(18px) saturate(150%) !important;
-        border-right: 1px solid rgba(255,255,255,0.08) !important;
+        background: linear-gradient(180deg, rgba(9,14,27,0.98) 0%, rgba(7,11,21,0.98) 100%) !important;
+        border-right: 1px solid rgba(120,160,220,0.12) !important;
     }
     [data-testid="stSidebarContent"] {
-        padding: 18px 18px 14px 18px !important;
+        padding: 18px 16px 14px 16px !important;
         overflow-x: hidden !important;
     }
-    [data-testid="stSidebarUserContent"] {
-        padding-bottom: 10px !important;
-    }
+    [data-testid="stSidebarUserContent"] { padding-bottom: 8px !important; }
+
     .ssad-logo-badge {
-        display: flex; align-items: center; gap: 10px;
-        padding: 2px 2px 4px 2px;
+        display:flex; align-items:center; gap:11px; padding:2px 3px 2px 3px;
     }
     .ssad-logo-badge .icon {
-        font-size: 25px; background: rgba(80,140,255,0.18);
-        border: 1px solid rgba(140,180,255,0.4); border-radius: 10px;
-        width: 42px; height: 42px; display: flex; align-items: center; justify-content: center;
-        flex: 0 0 42px;
+        font-size:24px; background:linear-gradient(145deg,rgba(48,91,170,.32),rgba(18,31,61,.72));
+        border:1px solid rgba(112,157,235,.42); border-radius:11px;
+        width:44px; height:44px; display:flex; align-items:center; justify-content:center; flex:0 0 44px;
+        box-shadow:0 8px 24px rgba(0,0,0,.22);
     }
-    .ssad-logo-badge .name { font-weight: 750; font-size: 1.08rem; line-height: 1.05; }
-    .ssad-logo-badge .sub { font-size: 0.70rem; color: rgba(255,255,255,0.5); margin-top: 2px; white-space: nowrap; }
+    .ssad-logo-badge .name { font-weight:800; font-size:1.12rem; line-height:1.05; letter-spacing:.1px; }
+    .ssad-logo-badge .sub { font-size:.68rem; color:rgba(205,216,235,.55); margin-top:4px; white-space:nowrap; }
     .ssad-status-pill {
-        display: inline-block; padding: 5px 11px; border-radius: 20px;
-        background: rgba(0, 200, 130, 0.12); border: 1px solid rgba(0,200,130,0.42);
-        color: #4ade80; font-size: 0.72rem; font-weight: 650; margin: 8px 0 18px 0;
+        display:inline-flex; align-items:center; padding:6px 12px; border-radius:999px;
+        background:rgba(25,211,137,.08); border:1px solid rgba(25,211,137,.42);
+        color:#4ade80; font-size:.70rem; font-weight:750; letter-spacing:.2px; margin:10px 0 19px 0;
     }
     .ssad-nav-group-label {
-        font-size: 0.66rem; letter-spacing: 1.15px; color: rgba(255,255,255,0.42);
-        font-weight: 750; margin: 17px 2px 6px 2px;
+        font-size:.64rem; letter-spacing:1.35px; color:rgba(177,191,214,.48);
+        font-weight:800; margin:18px 4px 7px 4px;
     }
-    /* Compact, consistent navigation buttons */
-    [data-testid="stSidebar"] .stButton {
-        margin: 0 0 7px 0 !important;
-    }
+    [data-testid="stSidebar"] .stButton { margin:0 0 6px 0 !important; }
     [data-testid="stSidebar"] .stButton > button {
-        min-height: 42px !important;
-        height: 42px !important;
-        padding: 7px 12px !important;
-        border-radius: 11px !important;
-        font-size: 0.94rem !important;
-        line-height: 1.1 !important;
-        white-space: nowrap !important;
-        justify-content: center !important;
+        min-height:43px !important; height:43px !important; padding:8px 14px !important;
+        border-radius:12px !important; font-size:.91rem !important; font-weight:600 !important;
+        line-height:1.1 !important; white-space:nowrap !important; justify-content:flex-start !important;
+        text-align:left !important; border:1px solid rgba(145,165,200,.12) !important;
+        background:rgba(255,255,255,.035) !important; color:rgba(235,241,251,.86) !important;
+        box-shadow:inset 0 1px 0 rgba(255,255,255,.025) !important;
+        transition:all .16s ease !important;
     }
     [data-testid="stSidebar"] .stButton > button:hover {
-        transform: translateY(-1px);
-        border-color: rgba(100,170,255,0.34) !important;
+        transform:translateX(2px) !important; background:rgba(72,126,220,.10) !important;
+        border-color:rgba(91,151,244,.28) !important; color:#fff !important;
+    }
+    [data-testid="stSidebar"] .stButton > button[kind="primary"] {
+        background:linear-gradient(90deg,rgba(52,120,246,.18),rgba(22,166,161,.08)) !important;
+        border-color:rgba(75,143,245,.42) !important; color:#fff !important;
+        box-shadow:inset 3px 0 0 #4f91ff, 0 7px 18px rgba(0,0,0,.16) !important;
+    }
+    [data-testid="stSidebar"] .stButton > button p {
+        font-weight:600 !important; margin:0 !important;
     }
     [data-testid="stSidebar"] hr {
-        margin: 12px 0 10px 0 !important;
-        border-color: rgba(255,255,255,0.08) !important;
+        margin:14px 2px 10px 2px !important; border-color:rgba(255,255,255,.07) !important;
     }
-    .st-key-ssad_footer_metrics { font-size: 0.75rem; }
-    [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
-        margin-bottom: 3px !important;
-    }
+    .st-key-ssad_footer_metrics { font-size:.73rem; }
+    [data-testid="stSidebar"] [data-testid="stCaptionContainer"] { margin-bottom:3px !important; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -934,12 +920,9 @@ with st.sidebar:
     st.markdown('<div class="ssad-nav-group-label">SYSTEM</div>', unsafe_allow_html=True)
     is_settings_active = st.session_state.active_tab == "⚙️ Settings"
     st.button(
-        "⚙️ Settings",
-        key="sidebar_settings_button",
-        use_container_width=True,
+        "⚙️ Settings", key="sidebar_settings_button", use_container_width=True,
         type="primary" if is_settings_active else "secondary",
-        on_click=switch_page,
-        args=("⚙️ Settings",),
+        on_click=switch_page, args=("⚙️ Settings",),
     )
 
     st.divider()
@@ -954,6 +937,7 @@ with st.sidebar:
         tcol1, tcol2 = st.columns(2)
         st.session_state.theme_dark = tcol1.toggle("🌙 Dark", value=st.session_state.theme_dark)
         st.session_state.alerts_on = tcol2.toggle("🔔 Alerts", value=st.session_state.alerts_on)
+
 
 # --- ASSET UNIVERSE ---
 MARKET_UNIVERSE = {
