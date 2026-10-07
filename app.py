@@ -828,32 +828,65 @@ st.markdown(
     """
     <style>
     [data-testid="stSidebar"] {
-        background: rgba(12, 15, 24, 0.55) !important;
+        background: rgba(10, 14, 24, 0.72) !important;
         backdrop-filter: blur(18px) saturate(150%) !important;
         -webkit-backdrop-filter: blur(18px) saturate(150%) !important;
         border-right: 1px solid rgba(255,255,255,0.08) !important;
     }
+    [data-testid="stSidebarContent"] {
+        padding: 18px 18px 14px 18px !important;
+        overflow-x: hidden !important;
+    }
+    [data-testid="stSidebarUserContent"] {
+        padding-bottom: 10px !important;
+    }
     .ssad-logo-badge {
         display: flex; align-items: center; gap: 10px;
-        padding: 10px 4px 6px 4px;
+        padding: 2px 2px 4px 2px;
     }
     .ssad-logo-badge .icon {
-        font-size: 26px; background: rgba(80,140,255,0.18);
+        font-size: 25px; background: rgba(80,140,255,0.18);
         border: 1px solid rgba(140,180,255,0.4); border-radius: 10px;
         width: 42px; height: 42px; display: flex; align-items: center; justify-content: center;
+        flex: 0 0 42px;
     }
-    .ssad-logo-badge .name { font-weight: 700; font-size: 1.05rem; line-height: 1.1; }
-    .ssad-logo-badge .sub { font-size: 0.72rem; color: rgba(255,255,255,0.5); }
+    .ssad-logo-badge .name { font-weight: 750; font-size: 1.08rem; line-height: 1.05; }
+    .ssad-logo-badge .sub { font-size: 0.70rem; color: rgba(255,255,255,0.5); margin-top: 2px; white-space: nowrap; }
     .ssad-status-pill {
-        display: inline-block; padding: 4px 10px; border-radius: 20px;
-        background: rgba(0, 200, 130, 0.14); border: 1px solid rgba(0,200,130,0.4);
-        color: #4ade80; font-size: 0.72rem; font-weight: 600; margin: 6px 0 14px 0;
+        display: inline-block; padding: 5px 11px; border-radius: 20px;
+        background: rgba(0, 200, 130, 0.12); border: 1px solid rgba(0,200,130,0.42);
+        color: #4ade80; font-size: 0.72rem; font-weight: 650; margin: 8px 0 18px 0;
     }
     .ssad-nav-group-label {
-        font-size: 0.68rem; letter-spacing: 1.2px; color: rgba(255,255,255,0.4);
-        font-weight: 700; margin: 14px 2px 4px 2px;
+        font-size: 0.66rem; letter-spacing: 1.15px; color: rgba(255,255,255,0.42);
+        font-weight: 750; margin: 17px 2px 6px 2px;
+    }
+    /* Compact, consistent navigation buttons */
+    [data-testid="stSidebar"] .stButton {
+        margin: 0 0 7px 0 !important;
+    }
+    [data-testid="stSidebar"] .stButton > button {
+        min-height: 42px !important;
+        height: 42px !important;
+        padding: 7px 12px !important;
+        border-radius: 11px !important;
+        font-size: 0.94rem !important;
+        line-height: 1.1 !important;
+        white-space: nowrap !important;
+        justify-content: center !important;
+    }
+    [data-testid="stSidebar"] .stButton > button:hover {
+        transform: translateY(-1px);
+        border-color: rgba(100,170,255,0.34) !important;
+    }
+    [data-testid="stSidebar"] hr {
+        margin: 12px 0 10px 0 !important;
+        border-color: rgba(255,255,255,0.08) !important;
     }
     .st-key-ssad_footer_metrics { font-size: 0.75rem; }
+    [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
+        margin-bottom: 3px !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
