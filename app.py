@@ -297,25 +297,8 @@ st.markdown(
     .ssad-floating-move{font-size:.67rem;font-weight:800;margin-top:2px;}
     .ssad-floating-market .ssad-mini-chart{right:6px;bottom:5px;width:42%;height:34px;opacity:.6;}
     .ssad-floating-add{flex:0 0 42px;align-self:center;width:42px!important;height:42px!important;padding:0!important;border-radius:50%!important;font-size:1.35rem!important;color:#9bb1cf!important;background:rgba(255,255,255,.035)!important;}
-    .ssad-hero-clean{
-        min-height:440px;
-        margin-top:2px;
-        position:relative;
-        overflow:hidden;
-        isolation:isolate;
-        background:
-            linear-gradient(90deg,rgba(6,10,18,.86) 0%,rgba(6,10,18,.64) 43%,rgba(6,10,18,.20) 76%,rgba(6,10,18,.10) 100%),
-            linear-gradient(180deg,rgba(5,9,17,.12),rgba(5,9,17,.18));
-        background-size:cover;
-        background-position:center;
-        border-radius:22px;
-    }
-    .ssad-hero-clean .ssad-hero-copy{
-        max-width:62%;
-        padding:58px 52px;
-        position:relative;
-        z-index:4;
-    }
+    .ssad-hero-clean{min-height:390px;margin-top:2px;background:radial-gradient(circle at 82% 38%,rgba(40,126,255,.18),transparent 25%),radial-gradient(circle at 70% 78%,rgba(57,229,140,.10),transparent 24%),linear-gradient(120deg,rgba(17,23,36,.98),rgba(7,10,17,.94));}
+    .ssad-hero-clean .ssad-hero-copy{max-width:78%;padding:58px 52px;}
     .ssad-hero-clean .ssad-eyebrow span{color:#65758d;margin:0 6px;}
     .ssad-hero-clean h1{font-size:clamp(2.7rem,5vw,4.6rem);letter-spacing:-2.8px;margin:12px 0 17px;}
     .ssad-hero-clean h1 span{background:linear-gradient(90deg,#55efc2,#55b8ff 48%,#a97cff);-webkit-background-clip:text;background-clip:text;color:transparent;}
@@ -326,41 +309,20 @@ st.markdown(
     .ssad-feature-line{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:27px;color:#94a8c1;font-size:.68rem;font-weight:800;letter-spacing:.8px;}
     .ssad-feature-line span:first-child{color:#69e8b1;}
     .ssad-feature-line b{color:#53657e;}
-
-    /* FULL HERO ART — the trading image fills the entire title/header background. */
-    .ssad-hero-bg{
-        position:absolute;
-        inset:0;
-        z-index:0;
-        pointer-events:none;
-        background-position:center center;
-        background-size:cover;
-        background-repeat:no-repeat;
-        opacity:1;
-    }
-    .ssad-hero-bg::after{
-        content:"";
-        position:absolute;
-        inset:0;
-        background:
-            linear-gradient(90deg,rgba(5,9,17,.88) 0%,rgba(5,9,17,.66) 39%,rgba(5,9,17,.25) 72%,rgba(5,9,17,.08) 100%),
-            linear-gradient(180deg,rgba(5,9,17,.10),rgba(5,9,17,.18));
-    }
-    .ssad-hero-globe{display:none !important;}
-    .ssad-hero-glow{position:absolute;right:9%;top:17%;width:270px;height:270px;border-radius:50%;background:radial-gradient(circle,rgba(68,155,255,.08),transparent 67%);filter:blur(2px);z-index:2;}
-    .ssad-hero-orbit{position:absolute;border:1px solid rgba(87,155,255,.10);border-radius:50%;pointer-events:none;z-index:2;}
+    .ssad-hero-globe{position:absolute;right:2%;top:3%;width:min(43vw,470px);height:min(43vw,470px);opacity:.94;z-index:1;filter:drop-shadow(0 18px 45px rgba(0,0,0,.25));pointer-events:none;}
+    .ssad-hero-globe img{width:100%;height:100%;object-fit:contain;display:block;mix-blend-mode:screen;filter:saturate(1.08) contrast(1.03) drop-shadow(0 18px 45px rgba(0,0,0,.28));-webkit-mask-image:radial-gradient(circle at 50% 50%,#000 52%,rgba(0,0,0,.92) 64%,transparent 86%);mask-image:radial-gradient(circle at 50% 50%,#000 52%,rgba(0,0,0,.92) 64%,transparent 86%);}
+    .ssad-hero-glow{position:absolute;right:9%;top:17%;width:270px;height:270px;border-radius:50%;background:radial-gradient(circle,rgba(68,155,255,.11),transparent 67%);filter:blur(2px);}
+    .ssad-hero-orbit{position:absolute;border:1px solid rgba(87,155,255,.18);border-radius:50%;pointer-events:none;}
     .ssad-hero-orbit.orbit-one{width:310px;height:310px;right:5%;top:11%;transform:rotate(-22deg);}
-    .ssad-hero-orbit.orbit-two{width:430px;height:190px;right:-1%;top:27%;transform:rotate(-22deg);border-color:rgba(57,229,140,.08);}
-    .ssad-hero-node{position:absolute;width:7px;height:7px;border-radius:50%;background:#68dfff;box-shadow:0 0 16px rgba(104,223,255,.7);z-index:2;}
-    .ssad-hero-node.node-one{right:21%;top:20%;}.ssad-hero-node.node-two{right:10%;top:58%;background:#39e58c;box-shadow:0 0 16px rgba(57,229,140,.7);}.ssad-hero-node.node-three{right:29%;bottom:18%;background:#a87cff;box-shadow:0 0 16px rgba(168,124,255,.65);}
+    .ssad-hero-orbit.orbit-two{width:430px;height:190px;right:-1%;top:27%;transform:rotate(-22deg);border-color:rgba(57,229,140,.13);}
+    .ssad-hero-node{position:absolute;width:7px;height:7px;border-radius:50%;background:#68dfff;box-shadow:0 0 16px rgba(104,223,255,.9);}
+    .ssad-hero-node.node-one{right:21%;top:20%;}.ssad-hero-node.node-two{right:10%;top:58%;background:#39e58c;box-shadow:0 0 16px rgba(57,229,140,.9);}.ssad-hero-node.node-three{right:29%;bottom:18%;background:#a87cff;box-shadow:0 0 16px rgba(168,124,255,.8);}
     .ssad-section-title-spaced{margin-top:20px;}
     .ssad-action-card-compact{min-height:164px;padding:17px;}
     .ssad-action-card-compact .art{height:45px;margin-bottom:6px;}
     .ssad-action-card-compact p{min-height:42px;}
-    @media (max-width: 900px){.ssad-hero-clean{min-height:430px;}.ssad-hero-clean .ssad-hero-copy{max-width:100%;padding:42px 30px;}.ssad-hero-bg{background-position:62% center;}.ssad-hero-globe{display:none !important;}.ssad-hero-orbit,.ssad-hero-glow{opacity:.35;right:-100px;}.ssad-floating-market{min-width:145px;}}
-    @media (max-width: 650px){.ssad-hero-clean{min-height:520px;}.ssad-hero-clean .ssad-hero-copy{padding:34px 22px;}.ssad-hero-bg{background-position:65% center;}}
-.ssad-hero-clean{min-height:430px;}.ssad-hero-clean .ssad-hero-copy{max-width:100%;padding:42px 30px;}.ssad-hero-globe{width:390px;height:390px;right:-105px;top:50%;opacity:.42;}.ssad-hero-orbit,.ssad-hero-glow{opacity:.45;right:-100px;}.ssad-floating-market{min-width:145px;}}
-    @media (max-width: 650px){.ssad-hero-clean{min-height:520px;}.ssad-hero-clean .ssad-hero-copy{padding:34px 22px;}.ssad-hero-clean h1{font-size:2.5rem;}.ssad-feature-line{gap:8px;font-size:.62rem;}.ssad-hero-globe{width:330px;height:330px;right:-125px;top:55%;opacity:.28;}.ssad-floating-market{min-width:138px;}.ssad-chip{font-size:.67rem;}}
+    @media (max-width: 900px){.ssad-hero-clean{min-height:430px;}.ssad-hero-clean .ssad-hero-copy{max-width:100%;padding:42px 30px;}.ssad-hero-globe{width:390px;height:390px;right:-90px;top:8%;opacity:.42;}.ssad-hero-orbit,.ssad-hero-glow{opacity:.45;right:-100px;}.ssad-floating-market{min-width:145px;}}
+    @media (max-width: 650px){.ssad-hero-clean{min-height:470px;}.ssad-hero-clean .ssad-hero-copy{padding:34px 22px;}.ssad-hero-clean h1{font-size:2.5rem;}.ssad-feature-line{gap:8px;font-size:.62rem;}.ssad-hero-globe{width:320px;height:320px;right:-115px;top:12%;opacity:.28;}.ssad-floating-market{min-width:138px;}.ssad-chip{font-size:.67rem;}}
     </style>
     """,
     unsafe_allow_html=True,
@@ -773,24 +735,18 @@ def run_strategy_backtest(df, fast, slow, risk_pct=1.0, rr=2.0, starting_balance
 
 # ============================================================
 # SIDEBAR NAVIGATION
-# Display names are new, but the existing app functionality
-# remains connected to the original internal pages.
+# Display names are separated from the existing internal pages.
+# This keeps the existing app functionality intact.
 # ============================================================
-
 NAV_GROUPS = {
     "CORE": [
         ("⌂ Home", "📊 Dashboard"),
     ],
-
     "MARKET": [
-        # Markets = the complete existing Chart Analysis workspace
-        # including market data, watchlist, charts, indicators,
-        # anomaly zones, AI signals and execution controls.
+        # Markets opens the existing Chart Analysis workspace.
         ("📊 Markets", "📈 Chart Analysis"),
     ],
-
     "INTELLIGENCE": [
-        # Existing functionality mapped to the new sidebar names.
         ("◉ Anomaly Detection", "📈 Chart Analysis"),
         ("ϟ Signals", "📈 Chart Analysis"),
         ("▣ Backtesting", "🧪 Quant Lab"),
@@ -799,7 +755,6 @@ NAV_GROUPS = {
     ],
 }
 
-# Internal page names are still used by the existing application.
 NAV_OPTIONS = [
     internal_page
     for group_items in NAV_GROUPS.values()
@@ -807,9 +762,7 @@ NAV_OPTIONS = [
 ] + ["⚙️ Settings"]
 
 
-# ------------------------------------------------------------
-# Page switching
-# ------------------------------------------------------------
+# Callback to switch pages from Quick Action buttons
 def switch_page(target_page):
     st.session_state.active_tab = target_page
 
@@ -920,34 +873,28 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-for group_name, items in NAV_GROUPS.items():
+    for group_name, items in NAV_GROUPS.items():
+        st.markdown(
+            f'<div class="ssad-nav-group-label">{group_name}</div>',
+            unsafe_allow_html=True,
+        )
+
+        for display_name, internal_page in items:
+            is_active = st.session_state.active_tab == internal_page
+
+            st.button(
+                display_name,
+                key=f"sidebar_nav_{group_name}_{display_name}",
+                use_container_width=True,
+                type="primary" if is_active else "secondary",
+                on_click=switch_page,
+                args=(internal_page,),
+            )
 
     st.markdown(
-        f'<div class="ssad-nav-group-label">{group_name}</div>',
-        unsafe_allow_html=True
-    )
-
-    for display_name, internal_page in items:
-
-        is_active = st.session_state.active_tab == internal_page
-
-        st.button(
-            display_name,
-            key=f"nav_{internal_page}",
-            use_container_width=True,
-            type="primary" if is_active else "secondary",
-            on_click=switch_page,
-            args=(internal_page,),
-        )
-        
-
-# ------------------------------------------------------------
-# SETTINGS
-# ------------------------------------------------------------
-     st.markdown(
         '<div class="ssad-nav-group-label">SYSTEM</div>',
-        unsafe_allow_html=True
-     )
+        unsafe_allow_html=True,
+    )
 
     is_settings_active = st.session_state.active_tab == "⚙️ Settings"
 
@@ -1535,12 +1482,14 @@ if st.session_state.active_tab == '📊 Dashboard':
         Path(__file__).with_name("trading_hero.png").read_bytes()
     ).decode("utf-8")
     _globe_src = f"data:image/png;base64,{_globe_b64}"
-    # Clean hero: no large chart and no right-side panel.
+        # Clean hero: no large chart and no right-side panel.
     hero_html = '''
-    <div class="ssad-hero ssad-hero-clean" style="background-image:url('__GLOBE_SRC__');">
-        <div class="ssad-hero-bg" style="background-image:url('__GLOBE_SRC__');"></div>
+    <div class="ssad-hero ssad-hero-clean">
         <div class="ssad-hero-grid"></div>
         <div class="ssad-hero-glow"></div>
+        <div class="ssad-hero-globe" aria-hidden="true">
+            <img src="__GLOBE_SRC__" alt="Global market network globe" />
+        </div>
         <div class="ssad-hero-copy">
             <div class="ssad-eyebrow">QUANT TRADING TERMINAL <span>•</span> SESSION INTELLIGENCE</div>
             <h1>Smart Session<br/><span>Anomaly Detector</span></h1>
@@ -2481,4 +2430,4 @@ elif st.session_state.active_tab == "⚙️ Settings":
     st.selectbox("Base Currency", ["USD ($)", "INR (₹)", "EUR (€)"])
     st.divider()
     st.markdown("#### 🧩 Platform Modules")
-    st.write({"Chart Analysis": "Technical chart + direct execution", "EA Engine": "Builder / Library / Deployment", "Backtesting": "Historical simulation + metrics", "Broker Bridge": st.session_state.broker_name, "Default Execution": st.session_state.broker_api_mode})
+    st.write({"Chart Analysis": "Technical chart + direct execution", "EA Engine": "Builder / Library / Deployment", "Backtesting": "Historical simulation + metrics", "Broker Bridge": st.session_state.broker_name, "Default Execution": st.session_state.broker_api_mode}
