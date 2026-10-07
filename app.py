@@ -1587,10 +1587,12 @@ if st.session_state.active_tab == '📊 Dashboard':
     _ws_broker_cls = "good" if _ws_broker else "warn"
     _ws_net_cls = "good" if _ws_net >= 0 else "bad"
 
+    # Keep the Workspace market chart consistently blue.
+    # Do not show the green/red directional chart accent here.
     _ws_chart_svg = sparkline_svg(
         _ws_hist if len(_ws_hist) >= 2 else [_ws_price, _ws_price],
-        "#39e58c" if _ws_pct >= 0 else "#ff5c68",
-        "rgba(57,229,140,.08)" if _ws_pct >= 0 else "rgba(255,92,104,.08)",
+        "#5ea2ff",
+        "rgba(94,162,255,.08)",
     )
 
     workspace_cards = [
