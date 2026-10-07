@@ -771,25 +771,45 @@ def run_strategy_backtest(df, fast, slow, risk_pct=1.0, rr=2.0, starting_balance
     win_rate = wins / len(trade_df) * 100 if len(trade_df) else 0.0
     return {"equity":equity,"trades":trade_df,"net_profit":float(balance-starting_balance),"win_rate":win_rate,"mdd":mdd,"sharpe":sharpe}
 
-# Navigation, grouped for the sidebar
+# ============================================================
+# SIDEBAR NAVIGATION
+# Display names are new, but the existing app functionality
+# remains connected to the original internal pages.
+# ============================================================
+
 NAV_GROUPS = {
-    "CORE": ["📊 Dashboard"],
-    "ANALYTICS & EXECUTION": [
-        "📈 Chart Analysis",
-        "🧮 Pip & Risk Calculator",
-        "⚡ Broker Gateway",
+    "CORE": [
+        ("⌂ Home", "📊 Dashboard"),
     ],
+
+    "MARKET": [
+        # Markets = the complete existing Chart Analysis workspace
+        # including market data, watchlist, charts, indicators,
+        # anomaly zones, AI signals and execution controls.
+        ("📊 Markets", "📈 Chart Analysis"),
+    ],
+
     "INTELLIGENCE": [
-        "🧩 Strategy Builder",
-        "🧪 Quant Lab",
-        "🏦 Prop-Firm Center",
-        "📅 Economic Calendar",
+        # Existing functionality mapped to the new sidebar names.
+        ("◉ Anomaly Detection", "📈 Chart Analysis"),
+        ("ϟ Signals", "📈 Chart Analysis"),
+        ("▣ Backtesting", "🧪 Quant Lab"),
+        ("⚗ Strategy Lab", "🧩 Strategy Builder"),
+        ("▤ Journal", "📊 Dashboard"),
     ],
 }
-NAV_OPTIONS = [item for group in NAV_GROUPS.values() for item in group] + ["⚙️ Settings"]
+
+# Internal page names are still used by the existing application.
+NAV_OPTIONS = [
+    internal_page
+    for group_items in NAV_GROUPS.values()
+    for _, internal_page in group_items
+] + ["⚙️ Settings"]
 
 
-# Callback to switch pages from Quick Action buttons
+# ------------------------------------------------------------
+# Page switching
+# ------------------------------------------------------------
 def switch_page(target_page):
     st.session_state.active_tab = target_page
 
@@ -900,21 +920,34 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    for group_name, items in NAV_GROUPS.items():
-        st.markdown(f'<div class="ssad-nav-group-label">{group_name}</div>', unsafe_allow_html=True)
-        for item in items:
-            is_active = st.session_state.active_tab == item
-            st.button(
-                item,
-                key=f"nav_{item}",
-                use_container_width=True,
-                type="primary" if is_active else "secondary",
-                on_click=switch_page,
-                args=(item,),
-            )
+for group_name, items in NAV_GROUPS.items():
 
-    st.markdown('<div class="ssad-nav-group-label">SYSTEM</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="ssad-nav-group-label">{group_name}</div>',
+        unsafe_allow_html=True
+    )
+
+    for display_name, internal_page in items:
+
+        is_active = st.session_state.active_tab == internal_page
+
+        st.button(
+            display_name,
+            key=f"nav_{internal_page}",
+            use_container_width=True,
+            type="primary" if is_active else "secondary",
+            on_click=switch_page,
+            args=(internal_page,),
+        )
+        
+
+    st.markdown(
+    '<div class="ssad-nav-group-label">SYSTEM</div>',
+    unsafe_allow_html=True
+    )
+
     is_settings_active = st.session_state.active_tab == "⚙️ Settings"
+
     st.button(
         "⚙️ Settings",
         key="nav_settings",
