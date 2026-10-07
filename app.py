@@ -315,28 +315,28 @@ st.markdown(
     .ssad-hero-orbit.orbit-two{width:430px;height:190px;right:-1%;top:27%;transform:rotate(-22deg);border-color:rgba(57,229,140,.13);}
     .ssad-hero-node{position:absolute;width:7px;height:7px;border-radius:50%;background:#68dfff;box-shadow:0 0 16px rgba(104,223,255,.9);}
     .ssad-hero-node.node-one{right:21%;top:20%;}.ssad-hero-node.node-two{right:10%;top:58%;background:#39e58c;box-shadow:0 0 16px rgba(57,229,140,.9);}.ssad-hero-node.node-three{right:29%;bottom:18%;background:#a87cff;box-shadow:0 0 16px rgba(168,124,255,.8);}
-    .ssad-section-title-spaced{margin-top:20px;}
-    .ssad-action-card-compact{height:360px;min-height:360px;box-sizing:border-box;display:flex;flex-direction:column;padding:18px 18px 14px;border:1px solid rgba(255,255,255,.09);background:linear-gradient(145deg,rgba(18,25,39,.96),rgba(8,12,20,.96));box-shadow:0 14px 35px rgba(0,0,0,.16);overflow:hidden;}
-    .ssad-action-card-compact .ssad-workspace-live{min-height:46px;}
-    .ssad-action-card-compact .ssad-workspace-stat-row{min-height:60px;}
+    .ssad-section-title-spaced{margin-top:20px;text-align:center;font-size:1.35rem;font-weight:850;letter-spacing:-.3px;margin-bottom:14px;}
+    .ssad-action-card-compact{height:315px;min-height:315px;box-sizing:border-box;display:flex;flex-direction:column;padding:18px 18px 14px;border:1px solid rgba(255,255,255,.09);background:linear-gradient(145deg,rgba(18,25,39,.96),rgba(8,12,20,.96));box-shadow:0 14px 35px rgba(0,0,0,.16);overflow:hidden;}
+    .ssad-action-card-compact .ssad-workspace-live{min-height:42px;}
+    .ssad-action-card-compact .ssad-workspace-stat-row{min-height:54px;}
     .ssad-action-card-compact p{flex:1;}
-    .ssad-action-card-compact .art{height:48px;margin-bottom:5px;}
-    .ssad-action-card-compact h3{margin:4px 0 8px;font-size:1.02rem;}
-    .ssad-action-card-compact p{min-height:34px;margin:0 0 10px;color:#94a2b7;font-size:.78rem;line-height:1.45;}
+    .ssad-action-card-compact .art{height:44px;margin-bottom:4px;}
+    .ssad-action-card-compact h3{margin:4px 0 8px;font-size:1.12rem;}
+    .ssad-action-card-compact p{min-height:30px;margin:0 0 8px;color:#a1aec0;font-size:.86rem;line-height:1.42;}
     .ssad-workspace-live{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;margin:5px 0 8px;}
-    .ssad-workspace-price{font-size:1.16rem;font-weight:850;color:#f4f7fb;letter-spacing:-.3px;}
-    .ssad-workspace-move{font-size:.72rem;font-weight:800;margin-top:2px;}
+    .ssad-workspace-price{font-size:1.30rem;font-weight:850;color:#f4f7fb;letter-spacing:-.3px;}
+    .ssad-workspace-move{font-size:.76rem;font-weight:800;margin-top:2px;}
     .ssad-workspace-move.up{color:#39e58c;}
     .ssad-workspace-move.down{color:#ff6b78;}
     .ssad-workspace-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
-    .ssad-workspace-pill{padding:4px 7px;border-radius:999px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.08);color:#a9b7ca;font-size:.62rem;font-weight:750;}
+    .ssad-workspace-pill{padding:4px 8px;border-radius:999px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.08);color:#a9b7ca;font-size:.68rem;font-weight:750;}
     .ssad-workspace-pill.good{color:#62e8a9;border-color:rgba(57,229,140,.25);background:rgba(57,229,140,.07);}
     .ssad-workspace-pill.warn{color:#ffd36b;border-color:rgba(246,200,95,.25);background:rgba(246,200,95,.07);}
     .ssad-workspace-pill.bad{color:#ff8290;border-color:rgba(255,92,104,.25);background:rgba(255,92,104,.07);}
     .ssad-workspace-stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:8px 0 7px;}
-    .ssad-workspace-stat{padding:6px 7px;border-radius:8px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.06);}
-    .ssad-workspace-stat b{display:block;color:#f3f6fb;font-size:.76rem;}
-    .ssad-workspace-stat span{display:block;color:#718198;font-size:.57rem;margin-top:2px;text-transform:uppercase;letter-spacing:.4px;}
+    .ssad-workspace-stat{padding:7px 8px;border-radius:8px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.06);}
+    .ssad-workspace-stat b{display:block;color:#f3f6fb;font-size:.86rem;}
+    .ssad-workspace-stat span{display:block;color:#718198;font-size:.62rem;margin-top:2px;text-transform:uppercase;letter-spacing:.4px;}
     .ssad-workspace-chart{height:35px;margin:1px 0 4px;opacity:.88;}
     .ssad-workspace-empty{font-size:.72rem;color:#718198;margin:9px 0 13px;}
     </style>
