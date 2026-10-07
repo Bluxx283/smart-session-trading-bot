@@ -1511,13 +1511,13 @@ if st.session_state.active_tab == '📊 Dashboard':
     # These values come from the app's existing live feed/session
     # state. No placeholder trading numbers are injected.
     # ------------------------------------------------------------
-    # IMPORTANT: use the exact same live XAU/USD object as the floating market
-    # card. This keeps price and daily percentage synchronized everywhere.
-    _ws_live = get_live("OANDA:XAU_USD") or get_live("XAU/USD")
-    _ws_price = float(_ws_live["price"]) if _ws_live else float(global_price)
-    _ws_pct = float(_ws_live.get("pct", 0.0)) if _ws_live else 0.0
-
-    _ws_hist = (_ws_live.get("history", []) if _ws_live else [])
+    # IMPORTANT: reuse the EXACT XAU/USD values already calculated for the
+    # floating market card above. Do not calculate the percentage a second time.
+    # This guarantees that the Workspace and floating card can never disagree.
+    _xau_card = floating_markets[0]
+    _ws_price = float(str(_xau_card[1]).replace(",", "").replace("$", "")) if _xau_card[1] != "—" else float(global_price)
+    _ws_pct = float(str(_xau_card[2]).replace("%", ""))
+    _ws_hist = list(_xau_card[4]) if len(_xau_card) > 4 else []
     if len(_ws_hist) < 2 and global_df is not None and not global_df.empty:
         _ws_hist = global_df["Close"].tail(12).tolist()
 
