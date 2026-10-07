@@ -827,6 +827,17 @@ def send_chat_message(user_text, context_summary=""):
 st.markdown(
     """
     <style>
+    /* Hide the sidebar collapse / double-chevron control */
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="stSidebar"] button[aria-label*="Collapse"],
+    [data-testid="stSidebar"] button[aria-label*="Expand"],
+    [data-testid="stSidebar"] [data-testid="stSidebarNavCollapseButton"] {
+        display: none !important;
+        visibility: hidden !important;
+        width: 0 !important;
+        height: 0 !important;
+        pointer-events: none !important;
+    }
     [data-testid="stSidebar"] {
         background: rgba(10, 14, 24, 0.72) !important;
         backdrop-filter: blur(18px) saturate(150%) !important;
