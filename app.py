@@ -309,8 +309,79 @@ st.markdown(
     .ssad-feature-line{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:27px;color:#94a8c1;font-size:.68rem;font-weight:800;letter-spacing:.8px;}
     .ssad-feature-line span:first-child{color:#69e8b1;}
     .ssad-feature-line b{color:#53657e;}
-    .ssad-hero-globe{position:absolute;right:2%;top:3%;width:min(43vw,470px);height:min(43vw,470px);opacity:.94;z-index:1;filter:drop-shadow(0 18px 45px rgba(0,0,0,.25));pointer-events:none;}
-    .ssad-hero-globe img{width:100%;height:100%;object-fit:contain;display:block;mix-blend-mode:screen;filter:saturate(1.08) contrast(1.03) drop-shadow(0 18px 45px rgba(0,0,0,.28));-webkit-mask-image:radial-gradient(circle at 50% 50%,#000 52%,rgba(0,0,0,.92) 64%,transparent 86%);mask-image:radial-gradient(circle at 50% 50%,#000 52%,rgba(0,0,0,.92) 64%,transparent 86%);}
+    /* =========================================================
+   HERO — FULL BACKGROUND IMAGE
+   ========================================================= */
+
+.ssad-hero {
+    position: relative;
+    min-height: 520px;
+    width: 100%;
+    overflow: hidden;
+    border-radius: 0 0 24px 24px;
+
+    background-image:
+        linear-gradient(
+            90deg,
+            rgba(5, 10, 22, 0.98) 0%,
+            rgba(5, 10, 22, 0.90) 35%,
+            rgba(5, 10, 22, 0.55) 65%,
+            rgba(5, 10, 22, 0.30) 100%
+        ),
+        url("__GLOBE_SRC__");
+
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+/* extra dark cinematic layer */
+.ssad-hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(
+            circle at 75% 45%,
+            rgba(0, 190, 255, 0.12),
+            transparent 35%
+        ),
+        linear-gradient(
+            180deg,
+            rgba(4, 8, 18, 0.15),
+            rgba(4, 8, 18, 0.45)
+        );
+    pointer-events: none;
+}
+
+/* keep all hero content above background */
+.ssad-hero-copy {
+    position: relative;
+    z-index: 5;
+    max-width: 850px;
+}
+
+/* REMOVE the old separate image */
+.ssad-hero-globe {
+    display: none !important;
+}
+
+/* decorative elements */
+.ssad-hero-grid,
+.ssad-hero-glow,
+.ssad-hero-orbit,
+.ssad-hero-node {
+    z-index: 2;
+}
+
+.ssad-hero h1,
+.ssad-hero p,
+.ssad-hero .ssad-chip-row,
+.ssad-hero .ssad-feature-line,
+.ssad-hero .ssad-eyebrow {
+    position: relative;
+    z-index: 5;
+}
     .ssad-hero-glow{position:absolute;right:9%;top:17%;width:270px;height:270px;border-radius:50%;background:radial-gradient(circle,rgba(68,155,255,.11),transparent 67%);filter:blur(2px);}
     .ssad-hero-orbit{position:absolute;border:1px solid rgba(87,155,255,.18);border-radius:50%;pointer-events:none;}
     .ssad-hero-orbit.orbit-one{width:310px;height:310px;right:5%;top:11%;transform:rotate(-22deg);}
