@@ -1596,7 +1596,7 @@ if st.session_state.active_tab == '📊 Dashboard':
     workspace_cards = [
         (
             "chart", "Markets & Analysis",
-            f"<div class='ssad-workspace-live'><div><div class='ssad-workspace-price'>XAU/USD { _ws_price:,.2f }</div><div class='ssad-workspace-move {_ws_price_move_class}'>{_ws_price_move} today</div></div></div>"
+            f"<div class='ssad-workspace-live'><div><div class='ssad-workspace-price'>XAU/USD {_ws_price:,.2f}</div><div class='ssad-workspace-move {_ws_price_move_class}'>{_ws_price_move} today</div></div></div>"
             f"<div class='ssad-workspace-chart'>{_ws_chart_svg}</div>"
             f"<div class='ssad-workspace-meta'><span class='ssad-workspace-pill'>ANOMALIES {_ws_anomaly_count}</span><span class='ssad-workspace-pill {_ws_signal_cls}'>SIGNAL {_ws_signal_side}</span></div>",
             "Candlesticks, indicators, anomaly zones and AI signals.",
