@@ -1616,16 +1616,9 @@ if st.session_state.active_tab == '📊 Dashboard':
             "Connect and manage paper, live or supported funded/broker execution.",
             "Open Execution →", "⚡ Broker Gateway",
         ),
-        (
-            "quant", "Strategy Lab",
-            f"<div class='ssad-workspace-stat-row'><div class='ssad-workspace-stat'><b>{_ws_win:.1f}%</b><span>Win rate</span></div><div class='ssad-workspace-stat'><b>{_ws_trades}</b><span>Trades</span></div><div class='ssad-workspace-stat'><b class='{_ws_net_cls}'>${_ws_net:,.0f}</b><span>Net P&amp;L</span></div></div>"
-            f"<div class='ssad-workspace-meta'><span class='ssad-workspace-pill'>{_ws_strategy}</span></div>",
-            "Build, backtest, validate and develop systematic strategies.",
-            "Open Strategy Lab →", "🧪 Quant Lab",
-        ),
     ]
 
-    qa = st.columns(4, gap="medium")
+    qa = st.columns(3, gap="medium")
     for col, (kind, title, live_html, desc, btn, target) in zip(qa, workspace_cards):
         with col:
             st.markdown(
