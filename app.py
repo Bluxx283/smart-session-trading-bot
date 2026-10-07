@@ -316,9 +316,26 @@ st.markdown(
     .ssad-hero-node{position:absolute;width:7px;height:7px;border-radius:50%;background:#68dfff;box-shadow:0 0 16px rgba(104,223,255,.9);}
     .ssad-hero-node.node-one{right:21%;top:20%;}.ssad-hero-node.node-two{right:10%;top:58%;background:#39e58c;box-shadow:0 0 16px rgba(57,229,140,.9);}.ssad-hero-node.node-three{right:29%;bottom:18%;background:#a87cff;box-shadow:0 0 16px rgba(168,124,255,.8);}
     .ssad-section-title-spaced{margin-top:20px;}
-    .ssad-action-card-compact{min-height:164px;padding:17px;}
-    .ssad-action-card-compact .art{height:45px;margin-bottom:6px;}
-    .ssad-action-card-compact p{min-height:42px;}
+    .ssad-action-card-compact{min-height:225px;padding:18px 18px 14px;border:1px solid rgba(255,255,255,.09);background:linear-gradient(145deg,rgba(18,25,39,.96),rgba(8,12,20,.96));box-shadow:0 14px 35px rgba(0,0,0,.16);}
+    .ssad-action-card-compact .art{height:48px;margin-bottom:5px;}
+    .ssad-action-card-compact h3{margin:4px 0 8px;font-size:1.02rem;}
+    .ssad-action-card-compact p{min-height:34px;margin:0 0 10px;color:#94a2b7;font-size:.78rem;line-height:1.45;}
+    .ssad-workspace-live{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;margin:5px 0 8px;}
+    .ssad-workspace-price{font-size:1.16rem;font-weight:850;color:#f4f7fb;letter-spacing:-.3px;}
+    .ssad-workspace-move{font-size:.72rem;font-weight:800;margin-top:2px;}
+    .ssad-workspace-move.up{color:#39e58c;}
+    .ssad-workspace-move.down{color:#ff6b78;}
+    .ssad-workspace-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+    .ssad-workspace-pill{padding:4px 7px;border-radius:999px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.08);color:#a9b7ca;font-size:.62rem;font-weight:750;}
+    .ssad-workspace-pill.good{color:#62e8a9;border-color:rgba(57,229,140,.25);background:rgba(57,229,140,.07);}
+    .ssad-workspace-pill.warn{color:#ffd36b;border-color:rgba(246,200,95,.25);background:rgba(246,200,95,.07);}
+    .ssad-workspace-pill.bad{color:#ff8290;border-color:rgba(255,92,104,.25);background:rgba(255,92,104,.07);}
+    .ssad-workspace-stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:8px 0 7px;}
+    .ssad-workspace-stat{padding:6px 7px;border-radius:8px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.06);}
+    .ssad-workspace-stat b{display:block;color:#f3f6fb;font-size:.76rem;}
+    .ssad-workspace-stat span{display:block;color:#718198;font-size:.57rem;margin-top:2px;text-transform:uppercase;letter-spacing:.4px;}
+    .ssad-workspace-chart{height:35px;margin:1px 0 4px;opacity:.88;}
+    .ssad-workspace-empty{font-size:.72rem;color:#718198;margin:9px 0 13px;}
     </style>
     """,
     unsafe_allow_html=True,
@@ -1485,19 +1502,142 @@ if st.session_state.active_tab == '📊 Dashboard':
     st.markdown(hero_html, unsafe_allow_html=True)
     
     st.markdown('<div class="ssad-section-title ssad-section-title-spaced">Workspace</div>', unsafe_allow_html=True)
-    actions = [
-        ('chart','Markets & Analysis','Candlesticks, indicators, anomaly zones and execution controls.','Open Markets →','📈 Chart Analysis'),
-        ('risk','Risk Management','Position sizing, risk-to-reward and exposure planning.','Calculate Risk →','🧮 Pip & Risk Calculator'),
-        ('broker','Trade Execution','Connect paper, live or supported funded/broker accounts.','Open Execution →','⚡ Broker Gateway'),
-        ('quant','Strategy Lab','Idea → build → backtest → validate → deploy systematic research.','Open Strategy Lab →','🧪 Quant Lab'),
+
+    # ------------------------------------------------------------
+    # LIVE WORKSPACE METRICS
+    # These values come from the app's existing live feed/session
+    # state. No placeholder trading numbers are injected.
+    # ------------------------------------------------------------
+    _ws_live = (
+        get_live("XAU/USD")
+        or get_live("OANDA:XAU_USD")
+    )
+    _ws_price = float(_ws_live["price"]) if _ws_live else float(global_price)
+    _ws_pct = float(_ws_live.get("pct", 0.0)) if _ws_live else 0.0
+    _ws_hist = (_ws_live.get("history", []) if _ws_live else [])
+    if len(_ws_hist) < 2 and global_df is not None and not global_df.empty:
+        _ws_hist = global_df["Close"].tail(12).tolist()
+
+    # Use the same anomaly concept as Chart Analysis, based on the
+    # currently loaded Gold/XAU dataframe.
+    _ws_anomaly_count = 0
+    try:
+        if global_df is not None and len(global_df) >= 25:
+            _adf = global_df.copy()
+            _rm = _adf["Close"].rolling(20).mean()
+            _rs = _adf["Close"].rolling(20).std()
+            _z = (_adf["Close"] - _rm) / (_rs + 1e-9)
+            _vol_ma = _adf["Volume"].rolling(20).mean()
+            _vs = _adf["Volume"] / (_vol_ma + 1e-9)
+            _pivot = (
+                (_adf["High"] == _adf["High"].rolling(5, center=True).max())
+                | (_adf["Low"] == _adf["Low"].rolling(5, center=True).min())
+            )
+            _ws_anomaly_count = int((
+                _pivot & ((_z.abs() > 1.8) | (_vs > 2.0))
+            ).fillna(False).sum())
+    except Exception:
+        _ws_anomaly_count = 0
+
+    _ws_signal = None
+    try:
+        if global_df is not None and len(global_df) >= 25:
+            _ws_signal = make_signal_snapshot(_ws_price, global_df, "Gold (XAU/USD)")
+    except Exception:
+        _ws_signal = None
+
+    _ws_risk_pct = float(st.session_state.get("prop_max_trade_risk_pct", 0.50))
+    _ws_balance = float(st.session_state.get("account_balance", 100000.0))
+    _ws_risk_cash = _ws_balance * _ws_risk_pct / 100.0
+    if _ws_signal:
+        _ws_sl_distance = abs(float(_ws_signal["entry"]) - float(_ws_signal["sl"]))
+        _ws_rr = float(_ws_signal["rr"])
+        _ws_lots = _ws_risk_cash / (_ws_sl_distance * 100.0) if _ws_sl_distance > 0 else 0.0
+    else:
+        _ws_sl_distance = 0.0
+        _ws_rr = 0.0
+        _ws_lots = 0.0
+
+    _ws_broker = bool(st.session_state.get("broker_connected", False))
+    _ws_mode = str(st.session_state.get("broker_api_mode", "Paper / Demo"))
+    _ws_positions = len(st.session_state.get("positions", []))
+
+    _ws_result = st.session_state.get("last_backtest")
+    if not _ws_result and st.session_state.get("quant_runs"):
+        _ws_run = st.session_state.quant_runs[-1]
+        _ws_net = float(_ws_run.get("net_profit", 0.0))
+        _ws_win = float(_ws_run.get("win_rate", 0.0))
+        _ws_trades = int(_ws_run.get("trades", 0)) if isinstance(_ws_run.get("trades", 0), (int, float)) else 0
+        _ws_strategy = _ws_run.get("name", "Latest run")
+    elif _ws_result:
+        _ws_net = float(_ws_result.get("net_profit", 0.0))
+        _ws_win = float(_ws_result.get("win_rate", 0.0))
+        _ws_trades = len(_ws_result.get("trades", []))
+        _ws_strategy = "Last backtest"
+    else:
+        _ws_net = _ws_win = 0.0
+        _ws_trades = 0
+        _ws_strategy = "No backtest yet"
+
+    _ws_price_move_class = "up" if _ws_pct >= 0 else "down"
+    _ws_price_move = f"{_ws_pct:+.2f}%"
+    _ws_signal_side = _ws_signal["side"] if _ws_signal else "WAITING"
+    _ws_signal_cls = "good" if _ws_signal else "warn"
+    _ws_broker_label = "CONNECTED" if _ws_broker else "NOT CONNECTED"
+    _ws_broker_cls = "good" if _ws_broker else "warn"
+    _ws_net_cls = "good" if _ws_net >= 0 else "bad"
+
+    _ws_chart_svg = sparkline_svg(
+        _ws_hist if len(_ws_hist) >= 2 else [_ws_price, _ws_price],
+        "#39e58c" if _ws_pct >= 0 else "#ff5c68",
+        "rgba(57,229,140,.08)" if _ws_pct >= 0 else "rgba(255,92,104,.08)",
+    )
+
+    workspace_cards = [
+        (
+            "chart", "Markets & Analysis",
+            f"<div class='ssad-workspace-live'><div><div class='ssad-workspace-price'>XAU/USD { _ws_price:,.2f }</div><div class='ssad-workspace-move {_ws_price_move_class}'>{_ws_price_move} today</div></div></div>"
+            f"<div class='ssad-workspace-chart'>{_ws_chart_svg}</div>"
+            f"<div class='ssad-workspace-meta'><span class='ssad-workspace-pill'>ANOMALIES {_ws_anomaly_count}</span><span class='ssad-workspace-pill {_ws_signal_cls}'>SIGNAL {_ws_signal_side}</span></div>",
+            "Candlesticks, indicators, anomaly zones and AI signals.",
+            "Open Markets →", "📈 Chart Analysis",
+        ),
+        (
+            "risk", "Risk Management",
+            f"<div class='ssad-workspace-stat-row'><div class='ssad-workspace-stat'><b>{_ws_risk_pct:.2f}%</b><span>Risk / trade</span></div><div class='ssad-workspace-stat'><b>1:{_ws_rr:.1f}</b><span>R:R</span></div><div class='ssad-workspace-stat'><b>{_ws_lots:.2f}</b><span>Lots</span></div></div>"
+            f"<div class='ssad-workspace-meta'><span class='ssad-workspace-pill'>CAPITAL ${_ws_balance:,.0f}</span><span class='ssad-workspace-pill'>RISK ${_ws_risk_cash:,.0f}</span></div>",
+            "Position sizing, stop distance and risk-to-reward planning.",
+            "Calculate Risk →", "🧮 Pip & Risk Calculator",
+        ),
+        (
+            "broker", "Trade Execution",
+            f"<div class='ssad-workspace-stat-row'><div class='ssad-workspace-stat'><b>{_ws_broker_label}</b><span>Broker</span></div><div class='ssad-workspace-stat'><b>{_ws_mode}</b><span>Mode</span></div><div class='ssad-workspace-stat'><b>{_ws_positions}</b><span>Positions</span></div></div>"
+            f"<div class='ssad-workspace-meta'><span class='ssad-workspace-pill {_ws_broker_cls}'>GATEWAY {_ws_broker_label}</span></div>",
+            "Connect and manage paper, live or supported funded/broker execution.",
+            "Open Execution →", "⚡ Broker Gateway",
+        ),
+        (
+            "quant", "Strategy Lab",
+            f"<div class='ssad-workspace-stat-row'><div class='ssad-workspace-stat'><b>{_ws_win:.1f}%</b><span>Win rate</span></div><div class='ssad-workspace-stat'><b>{_ws_trades}</b><span>Trades</span></div><div class='ssad-workspace-stat'><b class='{_ws_net_cls}'>${_ws_net:,.0f}</b><span>Net P&amp;L</span></div></div>"
+            f"<div class='ssad-workspace-meta'><span class='ssad-workspace-pill'>{_ws_strategy}</span></div>",
+            "Build, backtest, validate and develop systematic strategies.",
+            "Open Strategy Lab →", "🧪 Quant Lab",
+        ),
     ]
-    qa = st.columns(4, gap='medium')
-    for col, (kind, title, desc, btn, target) in zip(qa, actions):
+
+    qa = st.columns(4, gap="medium")
+    for col, (kind, title, live_html, desc, btn, target) in zip(qa, workspace_cards):
         with col:
-            st.markdown(f'<div class="ssad-action-card ssad-action-card-compact"><div class="art">{action_art(kind)}</div><h3>{title}</h3><p>{desc}</p></div>', unsafe_allow_html=True)
-            st.button(btn, key=f'pro_qa_{kind}', use_container_width=True, on_click=switch_page, args=(target,))
-    
-    st.markdown('<div class="ssad-footer-note">Live prices are shown from the existing market-feed configuration. Instrument availability and execution mode depend on the connected data/broker services.</div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="ssad-action-card ssad-action-card-compact"><div class="art">{action_art(kind)}</div><h3>{title}</h3>{live_html}<p>{desc}</p></div>',
+                unsafe_allow_html=True,
+            )
+            st.button(
+                btn, key=f"pro_qa_{kind}", use_container_width=True,
+                on_click=switch_page, args=(target,)
+            )
+
+    st.markdown('<div class="ssad-footer-note">Workspace metrics are calculated from the existing live market feed, risk settings, broker state and backtest results.</div>', unsafe_allow_html=True)
 
 
 # ==========================================
