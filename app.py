@@ -316,7 +316,10 @@ st.markdown(
     .ssad-hero-node{position:absolute;width:7px;height:7px;border-radius:50%;background:#68dfff;box-shadow:0 0 16px rgba(104,223,255,.9);}
     .ssad-hero-node.node-one{right:21%;top:20%;}.ssad-hero-node.node-two{right:10%;top:58%;background:#39e58c;box-shadow:0 0 16px rgba(57,229,140,.9);}.ssad-hero-node.node-three{right:29%;bottom:18%;background:#a87cff;box-shadow:0 0 16px rgba(168,124,255,.8);}
     .ssad-section-title-spaced{margin-top:20px;}
-    .ssad-action-card-compact{min-height:225px;padding:18px 18px 14px;border:1px solid rgba(255,255,255,.09);background:linear-gradient(145deg,rgba(18,25,39,.96),rgba(8,12,20,.96));box-shadow:0 14px 35px rgba(0,0,0,.16);}
+    .ssad-action-card-compact{height:360px;min-height:360px;box-sizing:border-box;display:flex;flex-direction:column;padding:18px 18px 14px;border:1px solid rgba(255,255,255,.09);background:linear-gradient(145deg,rgba(18,25,39,.96),rgba(8,12,20,.96));box-shadow:0 14px 35px rgba(0,0,0,.16);overflow:hidden;}
+    .ssad-action-card-compact .ssad-workspace-live{min-height:46px;}
+    .ssad-action-card-compact .ssad-workspace-stat-row{min-height:60px;}
+    .ssad-action-card-compact p{flex:1;}
     .ssad-action-card-compact .art{height:48px;margin-bottom:5px;}
     .ssad-action-card-compact h3{margin:4px 0 8px;font-size:1.02rem;}
     .ssad-action-card-compact p{min-height:34px;margin:0 0 10px;color:#94a2b7;font-size:.78rem;line-height:1.45;}
@@ -1587,19 +1590,10 @@ if st.session_state.active_tab == '📊 Dashboard':
     _ws_broker_cls = "good" if _ws_broker else "warn"
     _ws_net_cls = "good" if _ws_net >= 0 else "bad"
 
-    # Keep the Workspace market chart consistently blue.
-    # Do not show the green/red directional chart accent here.
-    _ws_chart_svg = sparkline_svg(
-        _ws_hist if len(_ws_hist) >= 2 else [_ws_price, _ws_price],
-        "#5ea2ff",
-        "rgba(94,162,255,.08)",
-    )
-
     workspace_cards = [
         (
             "chart", "Markets & Analysis",
             f"<div class='ssad-workspace-live'><div><div class='ssad-workspace-price'>XAU/USD {_ws_price:,.2f}</div><div class='ssad-workspace-move {_ws_price_move_class}'>{_ws_price_move} today</div></div></div>"
-            f"<div class='ssad-workspace-chart'>{_ws_chart_svg}</div>"
             f"<div class='ssad-workspace-meta'><span class='ssad-workspace-pill'>ANOMALIES {_ws_anomaly_count}</span><span class='ssad-workspace-pill {_ws_signal_cls}'>SIGNAL {_ws_signal_side}</span></div>",
             "Candlesticks, indicators, anomaly zones and AI signals.",
             "Open Markets →", "📈 Chart Analysis",
