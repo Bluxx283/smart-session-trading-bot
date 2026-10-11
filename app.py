@@ -671,7 +671,7 @@ GLOBAL_CSS = """
 .stButton>button{border-radius:10px!important;border:1px solid rgba(255,255,255,.10)!important;background:rgba(255,255,255,.045)!important;color:#e8ecf4!important;font-weight:700!important}
 .stButton>button:hover{border-color:rgba(104,168,255,.38)!important;background:rgba(104,168,255,.09)!important}
 /* sticky market strip */
-.st-key-ssad_strip{position:sticky;top:3.4rem;z-index:50;margin-bottom:6px}
+.st-key-ssad_strip{position:sticky;top:var(--header-height,3.75rem);z-index:50;margin:0 0 8px;padding:.35rem 0 .15rem;background:linear-gradient(180deg,#070a11 78%,rgba(7,10,17,0))}
 /* sidebar */
 [data-testid="stSidebar"]{background:linear-gradient(180deg,rgba(9,14,27,.98),rgba(7,11,21,.98))!important;border-right:1px solid rgba(120,160,220,.12)!important}
 [data-testid="stSidebarContent"]{padding:18px 16px 14px!important}
@@ -780,7 +780,7 @@ html,body{{margin:0;background:transparent;overflow:hidden;font-family:Inter,sys
 
 @st.fragment(run_every=6)
 def market_strip():
-    components.html(_strip_html(), height=96)
+    components.html(_strip_html(), height=104)
 
 
 def render_copilot():
