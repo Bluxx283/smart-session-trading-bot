@@ -1675,64 +1675,113 @@ if st.session_state.active_tab == '📊 Dashboard':
 elif st.session_state.active_tab == "📈 Chart Analysis":
     st.title("📈 Smart Session Anomaly Detector | Charts")
 
-    # Compact trading-terminal layout: market selector on the left, chart centre, execution on the right.
-    market_col, chart_col, order_col = st.columns([0.85, 2.7, 1.05], gap="small")
+    # XM-inspired three-panel trading workspace. Dashboard code above is intentionally untouched.
+    st.markdown("""
+    <style>
+    .xm-panel-title{font-size:1.05rem;font-weight:750;color:#eef3ff;margin:0 0 .65rem 0}
+    .xm-quote{background:#1d293e;border:1px solid #344158;border-radius:12px;padding:12px 10px;text-align:center;min-height:65px}
+    .xm-muted{color:#8ea2c2;font-size:.82rem}
+    div[data-testid="stVerticalBlock"] div:has(> div .xm-buy) button{background:#32bd91;color:white;border:0;font-weight:700}
+    div[data-testid="stVerticalBlock"] div:has(> div .xm-sell) button{background:#e51e50;color:white;border:0;font-weight:700}
+    </style>
+    """, unsafe_allow_html=True)
+
+    market_col, chart_col, order_col = st.columns([0.95, 2.55, 1.05], gap="small")
     with market_col:
-        st.markdown("#### Markets")
-        cat_select = st.selectbox("Market category", list(MARKET_UNIVERSE.keys()), key="chart_market_category")
-        inst_select = st.selectbox("Instrument", list(MARKET_UNIVERSE[cat_select].keys()), key="chart_market_instrument")
-        inst_cfg = MARKET_UNIVERSE[cat_select][inst_select]
-        chart_res = st.selectbox("Timeframe", ["5m", "15m", "1h", "1D"], index=1, key="chart_market_interval")
-        st.caption("Choose an instrument to load its chart.")
+        st.markdown('<div class="xm-panel-title">Markets　⌕</div>', unsafe_allow_html=True)
+        category_labels = {
+            "🔥 Popular": list(MARKET_UNIVERSE.keys()),
+            "💸 Forex": [], "📊 Stocks CFDs": [], "⚡ Turbo Stocks": [],
+            "🌐 Equity Indices": [], "🧩 Thematic Indices": [], "🧺 ETFs": [],
+            "🛢 Commodities": [k for k in MARKET_UNIVERSE if "Metals" in k],
+            "₿ Cryptocurrencies": [k for k in MARKET_UNIVERSE if "Crypto" in k],
+            "📈 Top Gainers": [], "📉 Top Losers": [], "⭐ My Watchlist": list(MARKET_UNIVERSE.keys()),
+        }
+        cat_names = list(category_labels.keys())
+        chosen_market_cat = st.radio("Market categories", cat_names, key="xm_market_category", label_visibility="collapsed")
+        available_groups = category_labels[chosen_market_cat]
+        if not available_groups:
+            st.caption("This category is not configured in the current market data universe yet.")
+            available_groups = list(MARKET_UNIVERSE.keys()) if chosen_market_cat == "🔥 Popular" else []
+        if available_groups:
+            group_choice = st.selectbox("Asset group", available_groups, key="xm_asset_group", label_visibility="collapsed")
+            instrument_names = list(MARKET_UNIVERSE[group_choice].keys())
+            inst_select = st.radio("Instruments", instrument_names, key="xm_market_instrument", label_visibility="collapsed")
+            inst_cfg = MARKET_UNIVERSE[group_choice][inst_select]
+        else:
+            group_choice = list(MARKET_UNIVERSE.keys())[0]
+            inst_select = list(MARKET_UNIVERSE[group_choice].keys())[0]
+            inst_cfg = MARKET_UNIVERSE[group_choice][inst_select]
+        st.caption("Prices depend on the configured market data provider.")
 
     with chart_col:
-        tv_interval_val = "D" if chart_res == "1D" else ("60" if chart_res == "1h" else ("15" if chart_res == "15m" else "5"))
+        # Fixed 1-minute chart interval: timeframe selector removed as requested.
         tv_symbol = f"{inst_cfg['exchange']}:{inst_cfg['symbol']}"
         tv_widget_html = f"""
-        <style>html, body {{ height: 100%; margin: 0; padding: 0; }}</style>
+        <style>html, body {{ height:100%; margin:0; padding:0; background:#0f1728; }}</style>
         <div class="tradingview-widget-container" style="height:100%;width:100%;">
-          <div id="tv_chart" style="height:100%;width:100%;"></div>
+          <div id="tv_chart_xm" style="height:100%;width:100%;"></div>
           <script src="https://s3.tradingview.com/tv.js"></script>
           <script>
           new TradingView.widget({{
-            "autosize": true, "symbol": "{tv_symbol}", "interval": "{tv_interval_val}",
+            "autosize": true, "symbol": "{tv_symbol}", "interval": "1",
             "timezone": "Asia/Kolkata", "theme": "dark", "style": "1", "locale": "en",
-            "toolbar_bg": "#0b0e14", "enable_publishing": false, "hide_top_toolbar": false,
-            "container_id": "tv_chart"
+            "toolbar_bg": "#10182a", "enable_publishing": false, "hide_top_toolbar": false,
+            "container_id": "tv_chart_xm", "withdateranges": true, "hide_side_toolbar": false,
+            "allow_symbol_change": true, "save_image": true
           }});
           </script>
         </div>
         """
-        components.html(tv_widget_html, height=500)
-        st.caption("TradingView chart • use the toolbar to change indicators and drawing tools.")
+        components.html(tv_widget_html, height=570)
 
     with order_col:
-        st.markdown("#### Trade execution")
+        st.markdown('<div class="xm-panel-title">Trade execution</div>', unsafe_allow_html=True)
         chart_trade_price = float(global_price)
         try:
-            latest_trade_df = load_ohlcv(inst_cfg["yf"], period="1mo", interval=chart_res)
+            latest_trade_df = load_ohlcv(inst_cfg["yf"], period="1mo", interval="1d")
             if latest_trade_df is not None and len(latest_trade_df):
                 chart_trade_price = float(latest_trade_df["Close"].iloc[-1])
         except Exception:
             pass
-        st.metric("Reference price", f"{chart_trade_price:,.4f}")
-        order_side = st.radio("Direction", ["BUY / LONG", "SELL / SHORT"], horizontal=False, key="chart_order_side")
-        chart_lots = st.number_input("Lots / quantity", min_value=0.01, max_value=100.0, value=0.05, step=0.01, key="chart_trade_lots")
-        use_sltp = st.toggle("Set TP / SL", value=False, key="chart_use_sltp")
+        spread = max(abs(chart_trade_price) * 0.0001, 0.0001)
+        sell_quote = chart_trade_price - spread / 2
+        buy_quote = chart_trade_price + spread / 2
+        st.caption("One Click Order")
+        one_click = st.toggle("Enable one-click order", value=False, key="xm_one_click_order")
+        quote_sell, quote_buy = st.columns(2, gap="small")
+        with quote_sell:
+            st.markdown(f'<div class="xm-quote"><div class="xm-muted">SELL</div><b style="color:#ff4b68;font-size:1.05rem">{sell_quote:,.4f}</b></div>', unsafe_allow_html=True)
+        with quote_buy:
+            st.markdown(f'<div class="xm-quote"><div class="xm-muted">BUY</div><b style="color:#35d2a0;font-size:1.05rem">{buy_quote:,.4f}</b></div>', unsafe_allow_html=True)
+        size_mode = st.radio("Size mode", ["Quantity", "Lots"], horizontal=True, key="xm_size_mode", label_visibility="collapsed")
+        chart_lots = st.number_input("Amount (lots)" if size_mode == "Lots" else "Amount (quantity)", min_value=0.01, max_value=100.0, value=0.05, step=0.01, key="chart_trade_lots")
+        margin_estimate = abs(chart_trade_price * chart_lots * float(inst_cfg.get("lot_units", 1))) * 0.01
+        st.caption(f"Estimated required margin: {margin_estimate:,.2f} (illustrative 1% margin assumption)")
+        trigger_enabled = st.toggle("Buy/Sell when price is reached", value=False, key="xm_price_trigger_enabled")
+        trigger_price = st.number_input("Trigger price", min_value=0.0, value=float(chart_trade_price), step=max(float(inst_cfg.get("pip_size", 0.01)), 0.01), key="xm_trigger_price") if trigger_enabled else None
+        use_sltp = st.toggle("TP / SL", value=False, key="chart_use_sltp")
         if use_sltp:
             sl_col, tp_col = st.columns(2)
             with sl_col:
-                chart_sl = st.number_input("Stop loss", min_value=0.0, value=0.0, step=0.1, key="chart_trade_sl")
+                chart_sl = st.number_input("Stop Loss", min_value=0.0, value=0.0, step=0.1, key="chart_trade_sl")
             with tp_col:
-                chart_tp = st.number_input("Take profit", min_value=0.0, value=0.0, step=0.1, key="chart_trade_tp")
+                chart_tp = st.number_input("Take Profit", min_value=0.0, value=0.0, step=0.1, key="chart_trade_tp")
         else:
             chart_sl, chart_tp = 0.0, 0.0
-        st.caption("Confirm broker connection and order mode before live execution.")
-        if st.button("Place Order", type="primary", use_container_width=True, key="chart_place_order"):
-            side = "BUY" if order_side == "BUY / LONG" else "SELL"
-            place_chart_trade(side, chart_lots, inst_select, chart_trade_price)
-            st.success(f"{side} order submitted for {inst_select} at {chart_trade_price:,.4f}.")
-        st.caption("TP/SL inputs are captured in this panel; broker-side attachment depends on your configured gateway.")
+        order_side = st.radio("Order direction", ["BUY / LONG", "SELL / SHORT"], horizontal=True, key="chart_order_side", label_visibility="collapsed")
+        execution_price = buy_quote if order_side == "BUY / LONG" else sell_quote
+        button_label = f"Place {('BUY' if order_side == 'BUY / LONG' else 'SELL')} at {execution_price:,.4f}"
+        st.caption("Check broker connection and order mode before live execution.")
+        if st.button(button_label, type="primary", use_container_width=True, key="chart_place_order"):
+            if trigger_enabled and trigger_price is not None:
+                st.warning("Price-trigger settings are captured in the UI; a pending-order API is required to submit a broker-side trigger.")
+            else:
+                side = "BUY" if order_side == "BUY / LONG" else "SELL"
+                place_chart_trade(side, chart_lots, inst_select, execution_price)
+                st.success(f"{side} order submitted for {inst_select} at {execution_price:,.4f}.")
+        if one_click:
+            st.warning("One-click mode is enabled in the UI. Confirm broker safeguards before using live execution.")
 
     tab_tv, tab_quant = st.tabs(["📺 Live TradingView Viewport", "🔬 ML Anomaly Engine"])
     with tab_tv:
