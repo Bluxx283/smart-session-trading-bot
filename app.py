@@ -1,6 +1,12 @@
-from datetime import datetime
-import numpy as np
+from datetime import datetime, timedelta, time as dtime
+from collections import deque
+import os
+import base64
+import json
 import re
+import threading
+import time
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -10,6 +16,230 @@ import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
 from tradingview_ta import Interval, TA_Handler
 import yfinance as yf
+import base64
+from pathlib import Path
+
+try:
+    import websocket  # pip install websocket-client
+except ImportError:
+    websocket = None
+
+# ============================================================
+# 🔴 LIVE MARKET DATA ENGINE — real WebSocket price streaming
+# ------------------------------------------------------------
+# Crypto (BTC/ETH) streams live from Binance's public WebSocket —
+# free, no key required, sub-second updates.
+# Gold, EUR/USD, AAPL and NVDA stream live from Finnhub's
+# WebSocket once a free API key is supplied in Settings
+# (https://finnhub.io — free tier covers this easily).
+# Everything else (NSE equities, USD/INR) has no free public
+# WebSocket feed, so it keeps using polled data from yfinance and
+# is labelled "DELAYED" in the UI rather than shown as live.
+# Background threads are started once per server process via
+# st.cache_resource and keep pushing into a thread-safe dict that
+# every Streamlit rerun simply reads from — this is what makes the
+# prices update in real time instead of only refreshing on a timer.
+# ============================================================
+_LIVE_LOCK = threading.Lock()
+_LIVE_PRICES = {}     # symbol -> {"price","prev_close","pct","ts","source"}
+_LIVE_HISTORY = {}    # symbol -> deque of recent prices (for sparklines)
+
+
+def _update_live(symbol, price, prev_close=None, source="ws"):
+    with _LIVE_LOCK:
+        prev = _LIVE_PRICES.get(symbol, {})
+        pc = prev_close if prev_close is not None else prev.get("prev_close", price)
+        pct = ((price - pc) / pc * 100.0) if pc else 0.0
+        _LIVE_PRICES[symbol] = {
+            "price": float(price),
+            "prev_close": float(pc),
+            "pct": float(pct),
+            "ts": time.time(),
+            "source": source,
+        }
+        hist = _LIVE_HISTORY.setdefault(symbol, deque(maxlen=60))
+        hist.append(float(price))
+
+
+def get_live(symbol, max_age=120):
+    """Latest WebSocket-pushed quote for `symbol`, or None if missing/stale."""
+    with _LIVE_LOCK:
+        item = _LIVE_PRICES.get(symbol)
+        hist = list(_LIVE_HISTORY.get(symbol, []))
+    if not item:
+        return None
+    if time.time() - item["ts"] > max_age:
+        return None
+    item = dict(item)
+    item["history"] = hist
+    return item
+
+
+def _binance_ws_worker(streams):
+    """Keeps a Binance combined-stream WebSocket open; auto-reconnects."""
+    if websocket is None:
+        return
+    url = "wss://stream.binance.com:9443/stream?streams=" + "/".join(streams)
+    while True:
+        try:
+            ws = websocket.create_connection(url, timeout=10)
+            while True:
+                raw = ws.recv()
+                msg = json.loads(raw)
+                data = msg.get("data", {})
+                sym = data.get("s")      # e.g. BTCUSDT
+                last = data.get("c")     # last traded price
+                open_p = data.get("o")   # 24h open, used as the % change reference
+                if sym and last:
+                    _update_live(sym, float(last), float(open_p) if open_p else None, source="binance_ws")
+        except Exception:
+            time.sleep(5)
+            continue
+
+def _twelvedata_ws_worker(api_key, symbols):
+    """Stream price updates from Twelve Data WebSocket."""
+    if websocket is None or not api_key:
+        return
+
+    url = f"wss://ws.twelvedata.com/v1/quotes/price?apikey={api_key}"
+
+    symbol_map = {
+        "XAU/USD": "OANDA:XAU_USD",
+        "EUR/USD": "OANDA:EUR_USD",
+        "GBP/USD": "OANDA:GBP_USD",
+        "USD/JPY": "OANDA:USD_JPY",
+        "AAPL": "AAPL",
+        "NVDA": "NVDA",
+        "MSFT": "MSFT",
+        "TSLA": "TSLA",
+        "AMZN": "AMZN",
+    }
+
+    while True:
+        try:
+            ws = websocket.create_connection(url, timeout=15)
+
+            ws.send(json.dumps({
+                "action": "subscribe",
+                "params": {
+                    "symbols": ",".join(symbols)
+                }
+            }))
+
+            while True:
+                msg = json.loads(ws.recv())
+
+                if msg.get("event") == "price":
+                    symbol = msg.get("symbol")
+                    price = msg.get("price")
+
+                    key = symbol_map.get(symbol)
+
+                    if key and price is not None:
+                        _update_live(
+                            key,
+                            float(price),
+                            source="twelvedata_ws"
+                        )
+
+        except Exception as e:
+            time.sleep(5)
+
+# ------------------------------------------------------------
+# Market-hours engine — is this asset's market actually open?
+# ------------------------------------------------------------
+def _is_forex_open(now_utc):
+    """Forex/OTC gold: open Sun 21:00 UTC through Fri 21:00 UTC."""
+    wd = now_utc.weekday()  # Mon=0 ... Sun=6
+    t = now_utc.time()
+    if wd == 5:  # Saturday: closed all day
+        return False
+    if wd == 6:  # Sunday: opens at 21:00 UTC
+        return t >= dtime(21, 0)
+    if wd == 4:  # Friday: closes at 21:00 UTC
+        return t < dtime(21, 0)
+    return True
+
+
+def _is_nse_open(now_utc):
+    """NSE (India): Mon-Fri, 09:15-15:30 IST (UTC+5:30)."""
+    ist = now_utc + timedelta(hours=5, minutes=30)
+    if ist.weekday() >= 5:
+        return False
+    return dtime(9, 15) <= ist.time() <= dtime(15, 30)
+
+
+def _is_us_equity_open(now_utc):
+    """US equities: Mon-Fri, 09:30-16:00 ET. Approximated as UTC-5 (no DST)."""
+    et = now_utc - timedelta(hours=5)
+    if et.weekday() >= 5:
+        return False
+    return dtime(9, 30) <= et.time() <= dtime(16, 0)
+
+
+def market_is_open(category):
+    now_utc = datetime.utcnow()
+    if category == "crypto":
+        return True
+    if category == "forex":
+        return _is_forex_open(now_utc)
+    if category == "nse":
+        return _is_nse_open(now_utc)
+    if category == "us_equity":
+        return _is_us_equity_open(now_utc)
+    return True
+
+
+def status_badge(category):
+    """Green OPEN / grey CLOSED badge based on real market hours for this asset."""
+    color = "#39e58c" if market_is_open(category) else "#8792a5"
+    label = "OPEN" if market_is_open(category) else "CLOSED"
+    title = "Market is open" if market_is_open(category) else "Market is closed"
+    return (
+        f'<span style="font-size:9px;margin-left:6px;letter-spacing:.2px" title="{title}">'
+        f'<span style="color:{color};font-size:6px;vertical-align:middle">●</span>'
+        f'<span style="color:{color};font-weight:700"> {label}</span></span>'
+    )
+
+
+@st.cache_resource(show_spinner=False)
+def start_live_feeds(twelvedata_key: str = ""):
+    """Start Binance and Twelve Data WebSocket threads."""
+    threads = []
+
+    # Binance live crypto feed
+    t1 = threading.Thread(
+        target=_binance_ws_worker,
+        args=(["btcusdt@ticker", "ethusdt@ticker"],),
+        daemon=True,
+    )
+    t1.start()
+    threads.append(t1)
+
+    # Twelve Data live market feed
+    if twelvedata_key:
+        symbols = [
+            "XAU/USD",
+            "EUR/USD",
+            "GBP/USD",
+            "USD/JPY",
+            "AAPL",
+            "NVDA",
+            "MSFT",
+            "TSLA",
+            "AMZN",
+        ]
+
+        t2 = threading.Thread(
+            target=_twelvedata_ws_worker,
+            args=(twelvedata_key, symbols),
+            daemon=True,
+        )
+        t2.start()
+        threads.append(t2)
+
+    return threads
+
 
 # --- PAGE CONFIG ---
 st.set_page_config(
@@ -23,24 +253,92 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    .stApp {
-        background:
-            linear-gradient(rgba(6,8,14,0.92), rgba(6,8,14,0.95)),
-            repeating-linear-gradient(135deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 2px, transparent 2px, transparent 28px),
-            radial-gradient(circle at 15% 10%, rgba(80,140,255,0.10), transparent 40%),
-            radial-gradient(circle at 85% 90%, rgba(255,80,140,0.08), transparent 40%),
-            #05070c;
-        background-attachment: fixed;
+    :root { --line:rgba(255,255,255,.09); --green:#39e58c; --red:#ff5c68; --amber:#f6c85f; --blue:#68a8ff; }
+    .stApp { background:radial-gradient(circle at 12% 8%,rgba(49,106,220,.16),transparent 27%),radial-gradient(circle at 88% 18%,rgba(0,205,145,.08),transparent 23%),linear-gradient(180deg,#070a11 0%,#04060b 100%); color:#f5f7fb; }
+    .stApp,.stApp * { font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    [data-testid="stHeader"] { background:rgba(5,7,12,.72)!important; backdrop-filter:blur(18px); }
+    [data-testid="stMainBlockContainer"] { padding-top:1.6rem!important; }
+    [data-testid="stVerticalBlockBorderWrapper"] { border-color:var(--line)!important; background:linear-gradient(180deg,rgba(18,23,36,.78),rgba(10,13,21,.78)); }
+    .ssad-page-header { font-size:1.08rem;font-weight:700;letter-spacing:.2px;padding:7px 0 12px;border-bottom:1px solid var(--line);margin-bottom:16px;color:#e9edf5; }
+    .ssad-page-header span { color:#737d91;font-weight:500; }
+    .ssad-eyebrow { color:#6f7a8e;text-transform:uppercase;letter-spacing:1.8px;font-size:.68rem;font-weight:800; }
+    .ssad-hero { position:relative;overflow:hidden;min-height:255px;border-radius:22px;border:1px solid rgba(255,255,255,.10);background:radial-gradient(circle at 80% 30%,rgba(82,153,255,.20),transparent 26%),radial-gradient(circle at 70% 90%,rgba(46,229,140,.10),transparent 24%),linear-gradient(120deg,rgba(17,23,36,.97),rgba(7,10,17,.90));box-shadow:0 22px 70px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.035); }
+    .ssad-hero-grid { position:absolute;inset:0;opacity:.22;background-image:linear-gradient(rgba(255,255,255,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.045) 1px,transparent 1px);background-size:42px 42px;mask-image:linear-gradient(90deg,#000 0%,transparent 85%); }
+    .ssad-hero-copy { position:relative;z-index:2;padding:30px 34px;max-width:62%; }
+    .ssad-hero h1 { margin:8px 0;font-size:clamp(2rem,4vw,3.2rem);line-height:1.02;letter-spacing:-1.7px;color:#fff; }
+    .ssad-hero p { color:#9aa5b7;font-size:1rem;max-width:620px;line-height:1.65;margin:0 0 20px; }
+    .ssad-chip-row { display:flex;flex-wrap:wrap;gap:8px; }.ssad-chip { padding:7px 11px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.045);color:#c9d0dc;font-size:.75rem;font-weight:700; }.ssad-chip.live { color:#56ed9d;border-color:rgba(57,229,140,.25);background:rgba(57,229,140,.08); }
+    .ssad-hero-art { position:absolute;right:18px;bottom:-2px;width:45%;height:94%;opacity:.96; }
+    .ssad-market-card { position:relative;overflow:hidden;min-height:126px;padding:18px;border-radius:17px;border:1px solid var(--line);background:linear-gradient(180deg,rgba(18,23,35,.92),rgba(9,12,20,.92));box-shadow:0 12px 34px rgba(0,0,0,.22); }.ssad-market-card .label{color:#8792a5;font-size:.73rem;font-weight:700;text-transform:uppercase;letter-spacing:.9px}.ssad-market-card .price{font-size:1.35rem;font-weight:800;margin-top:7px}.ssad-market-card .move{font-size:.75rem;font-weight:800}.up{color:var(--green)!important}.down{color:var(--red)!important}.ssad-mini-chart{position:absolute;right:10px;bottom:7px;width:47%;height:52px;opacity:.8}
+    .ssad-section-title{font-size:1.02rem;font-weight:800;margin:8px 0 10px;color:#e9edf5}.ssad-action-card{min-height:205px;position:relative;overflow:hidden;padding:20px;border-radius:18px;border:1px solid var(--line);background:linear-gradient(145deg,rgba(19,24,37,.92),rgba(8,11,18,.92));transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}.ssad-action-card:hover{transform:translateY(-3px);border-color:rgba(104,168,255,.32);box-shadow:0 18px 45px rgba(0,0,0,.32)}.ssad-action-card .art{height:55px;margin-bottom:10px}.ssad-action-card h3{margin:0 0 6px;font-size:1.05rem}.ssad-action-card p{color:#8e97a9;font-size:.78rem;line-height:1.5;min-height:42px}
+    .ssad-status-card{border:1px solid var(--line);border-radius:17px;padding:17px 18px;background:rgba(12,16,26,.76)}.ssad-status-card .k{color:#788398;font-size:.7rem;text-transform:uppercase;letter-spacing:1px;font-weight:800}.ssad-status-card .v{font-size:1.2rem;font-weight:800;margin-top:6px}.ssad-feed{padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:space-between;gap:10px}.ssad-feed:last-child{border-bottom:0}.ssad-feed .symbol{font-weight:800}.ssad-feed .meta{color:#7f899b;font-size:.73rem}.ssad-badge{display:inline-flex;align-items:center;gap:5px;padding:5px 8px;border-radius:7px;font-size:.68rem;font-weight:800;border:1px solid rgba(255,255,255,.08)}.ssad-badge.green{color:#5cf0a1;background:rgba(57,229,140,.08)}.ssad-badge.amber{color:#ffd36e;background:rgba(246,200,95,.08)}.ssad-badge.blue{color:#8dbbff;background:rgba(104,168,255,.08)}.ssad-footer-note{color:#667084;font-size:.68rem;margin-top:14px}
+    .stButton>button{border-radius:10px!important;border:1px solid rgba(255,255,255,.10)!important;background:rgba(255,255,255,.045)!important;color:#e8ecf4!important;font-weight:700!important}.stButton>button:hover{border-color:rgba(104,168,255,.38)!important;background:rgba(104,168,255,.09)!important}
+    /* Compact dashboard hero + floating market strip */
+    .ssad-floating-viewport{position:relative;overflow:hidden;margin:2px 0 18px;padding:2px 0 7px;}
+    .ssad-floating-viewport:before,.ssad-floating-viewport:after{content:"";position:absolute;top:0;bottom:7px;width:72px;z-index:3;pointer-events:none;}
+    .ssad-floating-viewport:before{left:0;background:linear-gradient(90deg,#070a11,transparent);}
+    .ssad-floating-viewport:after{right:0;background:linear-gradient(270deg,#070a11,transparent);}
+    .ssad-floating-track{display:flex;width:max-content;gap:10px;animation:ssadMarketMarquee 34s linear infinite;}
+    .ssad-floating-viewport:hover .ssad-floating-track{animation-play-state:paused;}
+    .ssad-floating-market{position:relative;flex:0 0 154px;min-width:154px;padding:11px 13px 12px;border:1px solid rgba(104,168,255,.18);border-radius:15px;background:linear-gradient(145deg,rgba(18,27,43,.88),rgba(8,12,21,.88));box-shadow:0 10px 28px rgba(0,0,0,.20),inset 0 1px 0 rgba(255,255,255,.03);backdrop-filter:blur(12px);transition:transform .18s ease,border-color .18s ease;}
+    .ssad-floating-market:hover{transform:translateY(-3px);border-color:rgba(104,168,255,.38);}
+@keyframes ssadMarketMarquee {
+    from {
+        transform: translateX(0);
     }
-    .ssad-page-header {
-        font-size: 1.55rem;
-        font-weight: 700;
-        letter-spacing: 0.2px;
-        padding: 2px 0 10px 0;
-        border-bottom: 1px solid rgba(255,255,255,0.08);
-        margin-bottom: 14px;
+    to {
+        transform: translateX(-50%);
     }
-    .ssad-page-header span { color: rgba(255,255,255,0.55); font-weight: 500; }
+}
+    .ssad-floating-top{display:flex;align-items:center;gap:6px;color:#d8e3f3;font-size:.70rem;font-weight:800;white-space:nowrap;}
+    .ssad-floating-top .ssad-badge{margin-left:auto;font-size:.56rem;padding:3px 5px;}
+    .ssad-floating-dot{width:6px;height:6px;border-radius:50%;background:#39e58c;box-shadow:0 0 9px rgba(57,229,140,.8);flex:0 0 auto;}
+    .ssad-floating-price{font-size:1rem;font-weight:800;margin-top:7px;color:#f3f6fb;}
+    .ssad-floating-move{font-size:.67rem;font-weight:800;margin-top:2px;}
+    .ssad-floating-market .ssad-mini-chart{right:6px;bottom:5px;width:42%;height:34px;opacity:.6;}
+    .ssad-floating-add{flex:0 0 42px;align-self:center;width:42px!important;height:42px!important;padding:0!important;border-radius:50%!important;font-size:1.35rem!important;color:#9bb1cf!important;background:rgba(255,255,255,.035)!important;}
+    .ssad-hero-clean{min-height:500px;margin-top:2px;background:radial-gradient(circle at 82% 38%,rgba(40,126,255,.18),transparent 25%),radial-gradient(circle at 70% 78%,rgba(57,229,140,.10),transparent 24%),linear-gradient(120deg,rgba(17,23,36,.98),rgba(7,10,17,.94));}
+    .ssad-hero-clean .ssad-hero-copy{max-width:78%;padding:58px 52px;}
+    .ssad-hero-clean .ssad-eyebrow span{color:#65758d;margin:0 6px;}
+    .ssad-hero-clean h1{font-size:clamp(2.7rem,5vw,4.6rem);letter-spacing:-2.8px;margin:12px 0 17px;}
+    .ssad-hero-clean h1 span{background:linear-gradient(90deg,#55efc2,#55b8ff 48%,#a97cff);-webkit-background-clip:text;background-clip:text;color:transparent;}
+    .ssad-hero-clean p{max-width:690px;font-size:.98rem;margin-bottom:25px;}
+    .ssad-chip.blue{color:#8dbbff;border-color:rgba(104,168,255,.25);}
+    .ssad-chip.purple{color:#c19bff;border-color:rgba(165,108,255,.28);}
+    .ssad-chip.cyan{color:#6eeaff;border-color:rgba(0,216,255,.25);}
+    .ssad-feature-line{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:27px;color:#94a8c1;font-size:.68rem;font-weight:800;letter-spacing:.8px;}
+    .ssad-feature-line span:first-child{color:#69e8b1;}
+    .ssad-feature-line b{color:#53657e;}
+    .ssad-hero-glow{position:absolute;right:9%;top:17%;width:270px;height:270px;border-radius:50%;background:radial-gradient(circle,rgba(68,155,255,.11),transparent 67%);filter:blur(2px);}
+    .ssad-hero-orbit{position:absolute;border:1px solid rgba(87,155,255,.18);border-radius:50%;pointer-events:none;}
+    .ssad-hero-orbit.orbit-one{width:310px;height:310px;right:5%;top:11%;transform:rotate(-22deg);}
+    .ssad-hero-orbit.orbit-two{width:430px;height:190px;right:-1%;top:27%;transform:rotate(-22deg);border-color:rgba(57,229,140,.13);}
+    .ssad-hero-node{position:absolute;width:7px;height:7px;border-radius:50%;background:#68dfff;box-shadow:0 0 16px rgba(104,223,255,.9);}
+    .ssad-hero-node.node-one{right:21%;top:20%;}.ssad-hero-node.node-two{right:10%;top:58%;background:#39e58c;box-shadow:0 0 16px rgba(57,229,140,.9);}.ssad-hero-node.node-three{right:29%;bottom:18%;background:#a87cff;box-shadow:0 0 16px rgba(168,124,255,.8);}
+    .ssad-section-title-spaced{margin-top:20px;text-align:center;font-size:1.35rem;font-weight:850;letter-spacing:-.3px;margin-bottom:14px;}
+    .ssad-action-card-compact{height:315px;min-height:315px;box-sizing:border-box;display:flex;flex-direction:column;padding:18px 18px 14px;border:1px solid rgba(255,255,255,.09);background:linear-gradient(145deg,rgba(18,25,39,.96),rgba(8,12,20,.96));box-shadow:0 14px 35px rgba(0,0,0,.16);overflow:hidden;}
+    .ssad-action-card-compact .ssad-workspace-live{min-height:42px;}
+    .ssad-action-card-compact .ssad-workspace-stat-row{min-height:54px;}
+    .ssad-action-card-compact p{flex:1;}
+    .ssad-action-card-compact .art{height:44px;margin-bottom:4px;}
+    .ssad-action-card-compact h3{margin:4px 0 8px;font-size:1.12rem;}
+    .ssad-action-card-compact p{min-height:30px;margin:0 0 8px;color:#a1aec0;font-size:.86rem;line-height:1.42;}
+    .ssad-workspace-live{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;margin:5px 0 8px;}
+    .ssad-workspace-price{font-size:1.30rem;font-weight:850;color:#f4f7fb;letter-spacing:-.3px;}
+    .ssad-workspace-move{font-size:.76rem;font-weight:800;margin-top:2px;}
+    .ssad-workspace-move.up{color:#39e58c;}
+    .ssad-workspace-move.down{color:#ff6b78;}
+    .ssad-workspace-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+    .ssad-workspace-pill{padding:4px 8px;border-radius:999px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.08);color:#a9b7ca;font-size:.68rem;font-weight:750;}
+    .ssad-workspace-pill.good{color:#62e8a9;border-color:rgba(57,229,140,.25);background:rgba(57,229,140,.07);}
+    .ssad-workspace-pill.warn{color:#ffd36b;border-color:rgba(246,200,95,.25);background:rgba(246,200,95,.07);}
+    .ssad-workspace-pill.bad{color:#ff8290;border-color:rgba(255,92,104,.25);background:rgba(255,92,104,.07);}
+    .ssad-workspace-stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:8px 0 7px;}
+    .ssad-workspace-stat{padding:7px 8px;border-radius:8px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.06);}
+    .ssad-workspace-stat b{display:block;color:#f3f6fb;font-size:.86rem;}
+    .ssad-workspace-stat span{display:block;color:#718198;font-size:.62rem;margin-top:2px;text-transform:uppercase;letter-spacing:.4px;}
+    .ssad-workspace-chart{height:35px;margin:1px 0 4px;opacity:.88;}
+    .ssad-workspace-empty{font-size:.72rem;color:#718198;margin:9px 0 13px;}
     </style>
     """,
     unsafe_allow_html=True,
@@ -55,8 +353,17 @@ def page_header(subtitle):
     )
 
 
-# Auto-refresh session feed every 20 seconds
-st_autorefresh(interval=20000, key="ssad_feed_sync")
+# Auto-refresh the UI often enough that live WebSocket prices feel live
+st_autorefresh(interval=3000, key="ssad_feed_sync")
+
+if "twelvedata_api_key" not in st.session_state:
+    st.session_state.twelvedata_api_key = os.getenv(
+        "TWELVE_DATA_API_KEY", ""
+    )
+
+_live_threads = start_live_feeds(
+    st.session_state.twelvedata_api_key
+)
 
 # --- SESSION STATE INITIALIZATION ---
 if "active_tab" not in st.session_state:
@@ -67,6 +374,14 @@ if "positions" not in st.session_state:
     st.session_state.positions = []
 if "broker_connected" not in st.session_state:
     st.session_state.broker_connected = False
+if st.session_state.active_tab == "🧪 Quant Lab":
+    st.session_state.active_tab = "🧪 Backtesting"
+elif st.session_state.active_tab == "📅 Economic Calendar":
+    st.session_state.active_tab = "📰 News Trading"
+if "saved_strategies" not in st.session_state:
+    st.session_state.saved_strategies = []
+if "selected_saved_strategy" not in st.session_state:
+    st.session_state.selected_saved_strategy = None
 
 # --- FLOATING AI BOT: SESSION STATE ---
 if "bot_open" not in st.session_state:
@@ -76,13 +391,15 @@ if "chat_messages" not in st.session_state:
         {
             "role": "assistant",
             "content": (
-                "Hey, I'm your trading co-pilot. Ask me about the market, "
-                "chart signals, or build a strategy in the Strategies tab."
+                "Hi! I'm your trading co-pilot. I can watch signals, check risk, "
+                "explain setups, and help you work through your trading plan."
             ),
         }
     ]
 if "voice_enabled" not in st.session_state:
     st.session_state.voice_enabled = True
+if "voice_name" not in st.session_state:
+    st.session_state.voice_name = "Auto / Best available"
 if "anthropic_api_key" not in st.session_state:
     st.session_state.anthropic_api_key = ""
 if "claude_model" not in st.session_state:
@@ -181,6 +498,168 @@ def exit_signal(data):
     # Add your exit conditions here
     return False
 """
+if "broker_api_mode" not in st.session_state:
+    st.session_state.broker_api_mode = "Paper / Demo"
+if "broker_name" not in st.session_state:
+    st.session_state.broker_name = "MetaTrader 5 (MT5)"
+if "broker_api_endpoint" not in st.session_state:
+    st.session_state.broker_api_endpoint = ""
+if "broker_api_key" not in st.session_state:
+    st.session_state.broker_api_key = ""
+if "ea_deployments" not in st.session_state:
+    st.session_state.ea_deployments = {}
+if "strategy_library" not in st.session_state:
+    st.session_state.strategy_library = []
+if "last_backtest" not in st.session_state:
+    st.session_state.last_backtest = None
+if "quant_stage" not in st.session_state:
+    st.session_state.quant_stage = "💡 Idea"
+if "quant_runs" not in st.session_state:
+    st.session_state.quant_runs = []
+if "quant_candidate" not in st.session_state:
+    st.session_state.quant_candidate = None
+
+# --- PROP-FIRM + PERSISTENT AI MONITOR STATE ---
+PROP_DEFAULTS = {
+    "account_type": "Personal / Demo",
+    "account_size": 100000.0,
+    "profit_target_pct": 10.0,
+    "daily_loss_limit_pct": 5.0,
+    "max_drawdown_pct": 10.0,
+    "min_trading_days": 5,
+    "news_trading": "Allowed",
+    "weekend_holding": "Allowed",
+    "ea_trading": "Allowed",
+    "max_trade_risk_pct": 0.50,
+    "firm_name": "Custom Prop Profile",
+}
+for _k, _v in PROP_DEFAULTS.items():
+    st.session_state.setdefault(f"prop_{_k}", _v)
+
+st.session_state.setdefault("prop_daily_pnl", 0.0)
+st.session_state.setdefault("prop_peak_equity", float(st.session_state.account_balance))
+st.session_state.setdefault("prop_trading_days", 0)
+st.session_state.setdefault("notification_log", [])
+st.session_state.setdefault("telegram_bot_token", "")
+st.session_state.setdefault("telegram_chat_id", "")
+st.session_state.setdefault("discord_webhook", "")
+st.session_state.setdefault("smtp_host", "")
+st.session_state.setdefault("smtp_port", 587)
+st.session_state.setdefault("smtp_user", "")
+st.session_state.setdefault("smtp_password", "")
+st.session_state.setdefault("alert_email", "")
+st.session_state.setdefault("persistent_monitor_enabled", False)
+st.session_state.setdefault("last_signal_snapshot", None)
+st.session_state.setdefault("auto_ea_on_signal", False)
+st.session_state.setdefault("ea_execution_mode", "PAPER")
+st.session_state.setdefault("broker_api_endpoint", "")
+
+def prop_equity():
+    return float(st.session_state.account_balance + st.session_state.prop_daily_pnl)
+
+def prop_drawdown_pct():
+    peak = max(float(st.session_state.prop_peak_equity), 1.0)
+    return max(0.0, (peak - prop_equity()) / peak * 100.0)
+
+def prop_daily_loss_pct():
+    size = max(float(st.session_state.prop_account_size), 1.0)
+    return max(0.0, -float(st.session_state.prop_daily_pnl) / size * 100.0)
+
+def prop_risk_status(risk_pct):
+    if st.session_state.prop_account_type not in {"Prop-Firm", "Evaluation", "Funded Account"}:
+        return True, "Personal/demo mode — prop limits are informational."
+    daily = prop_daily_loss_pct()
+    dd = prop_drawdown_pct()
+    max_risk = float(st.session_state.prop_max_trade_risk_pct)
+    daily_limit = float(st.session_state.prop_daily_loss_limit_pct)
+    dd_limit = float(st.session_state.prop_max_drawdown_pct)
+    if risk_pct > max_risk:
+        return False, f"Requested risk {risk_pct:.2f}% exceeds max trade risk {max_risk:.2f}%."
+    if daily + risk_pct > daily_limit:
+        return False, f"This trade could exceed the daily loss limit ({daily_limit:.2f}%)."
+    if dd + risk_pct > dd_limit:
+        return False, f"This trade could exceed the maximum drawdown limit ({dd_limit:.2f}%)."
+    return True, "Within configured prop-account risk limits."
+
+def make_signal_snapshot(price, df, asset_name="Gold (XAU/USD)"):
+    data = df.copy()
+    if len(data) < 25:
+        return None
+    data = add_indicators(data, 9, 21).dropna()
+    if data.empty:
+        return None
+    last = data.iloc[-1]
+    p = float(price)
+    side = "LONG" if float(last["EMA Fast"]) > float(last["EMA Slow"]) else "SHORT"
+    atr = float((data["High"] - data["Low"]).rolling(14).mean().iloc[-1])
+    atr = max(atr, p * 0.002)
+    entry = p
+    sl = entry - atr * 1.15 if side == "LONG" else entry + atr * 1.15
+    tp1 = entry + (entry - sl) * 1.0 if side == "LONG" else entry - (sl - entry) * 1.0
+    tp2 = entry + (entry - sl) * 2.0 if side == "LONG" else entry - (sl - entry) * 2.0
+    rsi = float(last["RSI"])
+    vol_ma = float(last["Volume MA"]) if pd.notna(last["Volume MA"]) else 0.0
+    vol_ratio = float(last["Volume"] / (vol_ma + 1e-9)) if vol_ma else 1.0
+    trend_strength = abs(float(last["EMA Fast"]) - float(last["EMA Slow"])) / max(p, 1e-9) * 10000
+    confidence = min(95, max(52, 58 + trend_strength * 2 + min(vol_ratio, 2) * 6))
+    risk_ok, risk_reason = prop_risk_status(float(st.session_state.prop_max_trade_risk_pct))
+    return {
+        "asset": asset_name,
+        "side": side,
+        "entry": entry,
+        "sl": sl,
+        "tp1": tp1,
+        "tp2": tp2,
+        "rr": 2.0,
+        "confidence": confidence,
+        "rsi": rsi,
+        "volume_ratio": vol_ratio,
+        "risk_ok": risk_ok,
+        "risk_reason": risk_reason,
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+def append_notification(title, body, level="INFO"):
+    item = {"time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "level": level, "title": title, "body": body}
+    st.session_state.notification_log.insert(0, item)
+    st.session_state.notification_log = st.session_state.notification_log[:50]
+
+def build_signal_message(sig):
+    return (
+        f"{sig['asset']} {sig['side']} SETUP\n"
+        f"Entry: {sig['entry']:.2f}\nSL: {sig['sl']:.2f}\n"
+        f"TP1: {sig['tp1']:.2f}\nTP2: {sig['tp2']:.2f}\n"
+        f"R:R: 1:{sig['rr']:.1f}\nConfidence: {sig['confidence']:.0f}%\n"
+        f"Risk: {st.session_state.prop_max_trade_risk_pct:.2f}%\n"
+        f"Risk check: {'PASS' if sig['risk_ok'] else 'BLOCKED'} — {sig['risk_reason']}"
+    )
+
+def save_monitor_config():
+    cfg = {
+        "enabled": bool(st.session_state.persistent_monitor_enabled),
+        "account_type": st.session_state.prop_account_type,
+        "firm_name": st.session_state.prop_firm_name,
+        "account_size": float(st.session_state.prop_account_size),
+        "daily_loss_limit_pct": float(st.session_state.prop_daily_loss_limit_pct),
+        "max_drawdown_pct": float(st.session_state.prop_max_drawdown_pct),
+        "max_trade_risk_pct": float(st.session_state.prop_max_trade_risk_pct),
+        "assets": ["Gold (XAU/USD)", "Bitcoin (BTC/USDT)", "NIFTY 50 Index"],
+        "interval_seconds": 60,
+        "telegram_bot_token": st.session_state.telegram_bot_token,
+        "telegram_chat_id": st.session_state.telegram_chat_id,
+        "discord_webhook": st.session_state.discord_webhook,
+        "smtp_host": st.session_state.smtp_host,
+        "smtp_port": int(st.session_state.smtp_port),
+        "smtp_user": st.session_state.smtp_user,
+        "smtp_password": st.session_state.smtp_password,
+        "alert_email": st.session_state.alert_email,
+        "auto_ea_on_signal": bool(st.session_state.auto_ea_on_signal),
+        "ea_execution_mode": st.session_state.ea_execution_mode,
+        "broker_api_endpoint": st.session_state.broker_api_endpoint,
+    }
+    path = Path("prop_ai_monitor_config.json")
+    path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    return str(path)
 
 def place_chart_trade(side, lots, asset_name, price):
     st.session_state.positions.insert(
@@ -195,31 +674,106 @@ def place_chart_trade(side, lots, asset_name, price):
         },
     )
 
+
+def add_indicators(df, fast=9, slow=21, rsi_period=14, bb_period=20):
+    out = df.copy()
+    out["EMA Fast"] = out["Close"].ewm(span=max(int(fast), 2), adjust=False).mean()
+    out["EMA Slow"] = out["Close"].ewm(span=max(int(slow), 2), adjust=False).mean()
+    delta = out["Close"].diff()
+    gain = delta.clip(lower=0).rolling(max(int(rsi_period), 2)).mean()
+    loss = (-delta.clip(upper=0)).rolling(max(int(rsi_period), 2)).mean()
+    rs = gain / (loss + 1e-9)
+    out["RSI"] = 100 - (100 / (1 + rs))
+    mid = out["Close"].rolling(max(int(bb_period), 2)).mean()
+    std = out["Close"].rolling(max(int(bb_period), 2)).std()
+    out["BB Mid"] = mid
+    out["BB Upper"] = mid + 2 * std
+    out["BB Lower"] = mid - 2 * std
+    out["Volume MA"] = out["Volume"].rolling(20).mean()
+    out["Long Signal"] = (out["EMA Fast"] > out["EMA Slow"]) & (out["EMA Fast"].shift(1) <= out["EMA Slow"].shift(1))
+    out["Short Signal"] = (out["EMA Fast"] < out["EMA Slow"]) & (out["EMA Fast"].shift(1) >= out["EMA Slow"].shift(1))
+    return out
+
+
+def run_strategy_backtest(df, fast, slow, risk_pct=1.0, rr=2.0, starting_balance=100000.0):
+    data = add_indicators(df, fast, slow).dropna().copy()
+    if len(data) < max(int(slow) + 5, 30):
+        return None
+    balance = float(starting_balance)
+    equity_points = []
+    trades = []
+    position = None
+    risk_cash = starting_balance * float(risk_pct) / 100.0
+    for ts, row in data.iterrows():
+        price = float(row["Close"])
+        if position is None:
+            if bool(row["Long Signal"]):
+                sl = price * (1 - 0.006)
+                tp = price + (price - sl) * float(rr)
+                position = {"side":"LONG","entry":price,"sl":sl,"tp":tp,"time":ts}
+            elif bool(row["Short Signal"]):
+                sl = price * (1 + 0.006)
+                tp = price - (sl - price) * float(rr)
+                position = {"side":"SHORT","entry":price,"sl":sl,"tp":tp,"time":ts}
+        else:
+            exit_price = None
+            reason = None
+            if position["side"] == "LONG":
+                if row["Low"] <= position["sl"]:
+                    exit_price, reason = position["sl"], "Stop Loss"
+                elif row["High"] >= position["tp"]:
+                    exit_price, reason = position["tp"], "Take Profit"
+                elif bool(row["Short Signal"]):
+                    exit_price, reason = price, "Opposite Signal"
+            else:
+                if row["High"] >= position["sl"]:
+                    exit_price, reason = position["sl"], "Stop Loss"
+                elif row["Low"] <= position["tp"]:
+                    exit_price, reason = position["tp"], "Take Profit"
+                elif bool(row["Long Signal"]):
+                    exit_price, reason = price, "Opposite Signal"
+            if exit_price is not None:
+                pct = ((exit_price - position["entry"]) / position["entry"] if position["side"] == "LONG" else (position["entry"] - exit_price) / position["entry"])
+                pnl = risk_cash * (pct / 0.006)
+                balance += pnl
+                trades.append({"Entry Time":position["time"],"Exit Time":ts,"Side":position["side"],"Entry":position["entry"],"Exit":exit_price,"P&L":pnl,"Return %":pct*100,"Exit Reason":reason})
+                position = None
+        mark = balance
+        if position:
+            pct = ((price-position["entry"])/position["entry"] if position["side"]=="LONG" else (position["entry"]-price)/position["entry"])
+            mark += risk_cash * (pct / 0.006)
+        equity_points.append((ts, mark))
+    equity = pd.Series(dict(equity_points)).sort_index()
+    if not equity.empty:
+        running = equity.cummax()
+        dd = (equity-running)/running
+        mdd = abs(float(dd.min())*100)
+        returns = equity.pct_change().dropna()
+        sharpe = float((returns.mean()/(returns.std()+1e-9))*np.sqrt(252)) if len(returns)>1 else 0.0
+    else:
+        mdd, sharpe = 0.0, 0.0
+    trade_df = pd.DataFrame(trades)
+    wins = int((trade_df["P&L"] > 0).sum()) if not trade_df.empty else 0
+    win_rate = wins / len(trade_df) * 100 if len(trade_df) else 0.0
+    return {"equity":equity,"trades":trade_df,"net_profit":float(balance-starting_balance),"win_rate":win_rate,"mdd":mdd,"sharpe":sharpe}
+
 # Navigation, grouped for the sidebar
 NAV_GROUPS = {
-    "CORE": ["📊 Dashboard"],
-    "MARKET": ["📈 Chart Analysis"],
+    "CORE": [("⌂ Home", "📊 Dashboard")],
+    "MARKET": [("📊 Markets", "📈 Chart Analysis")],
     "STRATEGY WORKSPACE": [
-        "🧩 Strategy Lab",
-        "🧪 Backtesting",
-        "📰 News Trading",
-        "🤖 EA / Expert Advisors",
+        ("⚗ Strategy Lab", "🧩 Strategy Builder"),
+        ("▣ Backtesting", "🧪 Backtesting"),
+        ("▤ News Trading", "📰 News Trading"),
+        ("🤖 EA / Expert Advisors", "🤖 EA / Expert Advisors"),
     ],
-    "TOOLS": ["🧮 Pip & Risk Calculator", "⚡ Broker Gateway"],
+    "TOOLS": [
+        ("🧮 Pip & Risk Calculator", "🧮 Pip & Risk Calculator"),
+        ("⚡ Broker Gateway", "⚡ Broker Gateway"),
+        ("🛡 Prop-Firm Center", "🏦 Prop-Firm Center"),
+    ],
 }
-NAV_OPTIONS = [item for group in NAV_GROUPS.values() for item in group] + ["⚙️ Settings"]
-
-# Migrate prior page names to the new workspace names.
-if st.session_state.active_tab == "🧩 Strategy Builder":
-    st.session_state.active_tab = "🧩 Strategy Lab"
-if st.session_state.active_tab == "📅 Economic Calendar":
-    st.session_state.active_tab = "📰 News Trading"
-if "saved_strategies" not in st.session_state:
-    st.session_state.saved_strategies = []
-if "backtest_result" not in st.session_state:
-    st.session_state.backtest_result = None
-
-
+NAV_OPTIONS = [internal_page for group_items in NAV_GROUPS.values() for _, internal_page in group_items] + ["⚙️ Settings"]
 
 # Callback to switch pages from Quick Action buttons
 def switch_page(target_page):
@@ -281,37 +835,67 @@ def send_chat_message(user_text, context_summary=""):
     st.session_state.chat_messages.append({"role": "assistant", "content": reply})
 
 
-# --- SIDEBAR: GLASSMORPHISM + GROUPED NAVIGATION ---
+# --- SIDEBAR: POLISHED GROUPED NAVIGATION ---
 st.markdown(
     """
     <style>
     [data-testid="stSidebar"] {
-        background: rgba(12, 15, 24, 0.55) !important;
-        backdrop-filter: blur(18px) saturate(150%) !important;
-        -webkit-backdrop-filter: blur(18px) saturate(150%) !important;
-        border-right: 1px solid rgba(255,255,255,0.08) !important;
+        background: linear-gradient(180deg, rgba(9,14,27,0.98) 0%, rgba(7,11,21,0.98) 100%) !important;
+        border-right: 1px solid rgba(120,160,220,0.12) !important;
     }
+    [data-testid="stSidebarContent"] {
+        padding: 18px 16px 14px 16px !important;
+        overflow-x: hidden !important;
+    }
+    [data-testid="stSidebarUserContent"] { padding-bottom: 8px !important; }
+
     .ssad-logo-badge {
-        display: flex; align-items: center; gap: 10px;
-        padding: 10px 4px 6px 4px;
+        display:flex; align-items:center; gap:11px; padding:2px 3px 2px 3px;
     }
     .ssad-logo-badge .icon {
-        font-size: 26px; background: rgba(80,140,255,0.18);
-        border: 1px solid rgba(140,180,255,0.4); border-radius: 10px;
-        width: 42px; height: 42px; display: flex; align-items: center; justify-content: center;
+        font-size:24px; background:linear-gradient(145deg,rgba(48,91,170,.32),rgba(18,31,61,.72));
+        border:1px solid rgba(112,157,235,.42); border-radius:11px;
+        width:44px; height:44px; display:flex; align-items:center; justify-content:center; flex:0 0 44px;
+        box-shadow:0 8px 24px rgba(0,0,0,.22);
     }
-    .ssad-logo-badge .name { font-weight: 700; font-size: 1.05rem; line-height: 1.1; }
-    .ssad-logo-badge .sub { font-size: 0.72rem; color: rgba(255,255,255,0.5); }
+    .ssad-logo-badge .name { font-weight:800; font-size:1.12rem; line-height:1.05; letter-spacing:.1px; }
+    .ssad-logo-badge .sub { font-size:.68rem; color:rgba(205,216,235,.55); margin-top:4px; white-space:nowrap; }
     .ssad-status-pill {
-        display: inline-block; padding: 4px 10px; border-radius: 20px;
-        background: rgba(0, 200, 130, 0.14); border: 1px solid rgba(0,200,130,0.4);
-        color: #4ade80; font-size: 0.72rem; font-weight: 600; margin: 6px 0 14px 0;
+        display:inline-flex; align-items:center; padding:6px 12px; border-radius:999px;
+        background:rgba(25,211,137,.08); border:1px solid rgba(25,211,137,.42);
+        color:#4ade80; font-size:.70rem; font-weight:750; letter-spacing:.2px; margin:10px 0 19px 0;
     }
     .ssad-nav-group-label {
-        font-size: 0.68rem; letter-spacing: 1.2px; color: rgba(255,255,255,0.4);
-        font-weight: 700; margin: 14px 2px 4px 2px;
+        font-size:.64rem; letter-spacing:1.35px; color:rgba(177,191,214,.48);
+        font-weight:800; margin:18px 4px 7px 4px;
     }
-    .st-key-ssad_footer_metrics { font-size: 0.75rem; }
+    [data-testid="stSidebar"] .stButton { margin:0 0 6px 0 !important; }
+    [data-testid="stSidebar"] .stButton > button {
+        min-height:43px !important; height:43px !important; padding:8px 14px !important;
+        border-radius:12px !important; font-size:.91rem !important; font-weight:600 !important;
+        line-height:1.1 !important; white-space:nowrap !important; justify-content:flex-start !important;
+        text-align:left !important; border:1px solid rgba(145,165,200,.12) !important;
+        background:rgba(255,255,255,.035) !important; color:rgba(235,241,251,.86) !important;
+        box-shadow:inset 0 1px 0 rgba(255,255,255,.025) !important;
+        transition:all .16s ease !important;
+    }
+    [data-testid="stSidebar"] .stButton > button:hover {
+        transform:translateX(2px) !important; background:rgba(72,126,220,.10) !important;
+        border-color:rgba(91,151,244,.28) !important; color:#fff !important;
+    }
+    [data-testid="stSidebar"] .stButton > button[kind="primary"] {
+        background:linear-gradient(90deg,rgba(52,120,246,.18),rgba(22,166,161,.08)) !important;
+        border-color:rgba(75,143,245,.42) !important; color:#fff !important;
+        box-shadow:inset 3px 0 0 #4f91ff, 0 7px 18px rgba(0,0,0,.16) !important;
+    }
+    [data-testid="stSidebar"] .stButton > button p {
+        font-weight:600 !important; margin:0 !important;
+    }
+    [data-testid="stSidebar"] hr {
+        margin:14px 2px 10px 2px !important; border-color:rgba(255,255,255,.07) !important;
+    }
+    .st-key-ssad_footer_metrics { font-size:.73rem; }
+    [data-testid="stSidebar"] [data-testid="stCaptionContainer"] { margin-bottom:3px !important; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -334,39 +918,38 @@ with st.sidebar:
 
     for group_name, items in NAV_GROUPS.items():
         st.markdown(f'<div class="ssad-nav-group-label">{group_name}</div>', unsafe_allow_html=True)
-        for item in items:
-            is_active = st.session_state.active_tab == item
+        for display_name, internal_page in items:
+            is_active = st.session_state.active_tab == internal_page
             st.button(
-                item,
-                key=f"nav_{item}",
+                display_name,
+                key=f"sidebar_nav_{group_name}_{display_name}",
                 use_container_width=True,
                 type="primary" if is_active else "secondary",
                 on_click=switch_page,
-                args=(item,),
+                args=(internal_page,),
             )
 
     st.markdown('<div class="ssad-nav-group-label">SYSTEM</div>', unsafe_allow_html=True)
     is_settings_active = st.session_state.active_tab == "⚙️ Settings"
     st.button(
-        "⚙️ Settings",
-        key="nav_settings",
-        use_container_width=True,
+        "⚙️ Settings", key="sidebar_settings_button", use_container_width=True,
         type="primary" if is_settings_active else "secondary",
-        on_click=switch_page,
-        args=("⚙️ Settings",),
+        on_click=switch_page, args=("⚙️ Settings",),
     )
 
     st.divider()
     with st.container(key="ssad_footer_metrics"):
         st.caption("CONNECTION")
         fc1, fc2 = st.columns(2)
-        fc1.metric("WebSocket", "18ms")
-        fc2.metric("Broker API", "🟢")
+        _any_live = bool(_LIVE_PRICES)
+        fc1.metric("WebSocket", "LIVE" if _any_live else "WAITING")
+        fc2.metric("Broker API", "CONNECTED" if st.session_state.broker_connected else "NOT CONNECTED")
         st.session_state.setdefault("theme_dark", True)
         st.session_state.setdefault("alerts_on", True)
         tcol1, tcol2 = st.columns(2)
         st.session_state.theme_dark = tcol1.toggle("🌙 Dark", value=st.session_state.theme_dark)
         st.session_state.alerts_on = tcol2.toggle("🔔 Alerts", value=st.session_state.alerts_on)
+
 
 # --- ASSET UNIVERSE ---
 MARKET_UNIVERSE = {
@@ -528,65 +1111,14 @@ def load_ohlcv(ticker, period="1mo", interval="15m", fallback_price=2450.0):
 
 default_cfg = MARKET_UNIVERSE["🟡 Metals & Commodities"]["Gold (XAU/USD)"]
 global_df = load_ohlcv(default_cfg["yf"])
-global_price = (
-    float(global_df["Close"].iloc[-1]) if not global_df.empty else 2468.40
-)
+_gold_live = get_live("OANDA:XAU_USD")  # live via Finnhub WS, if a key is configured
+if _gold_live:
+    global_price = _gold_live["price"]
+elif not global_df.empty:
+    global_price = float(global_df["Close"].iloc[-1])
+else:
+    global_price = 2468.40
 
-# Top Ticker Bar — persistent sliding marquee (all 5 assets, seamless loop, pauses on hover)
-st.markdown(
-    """
-    <style>
-    .st-key-ssad_ticker_wrap {
-        position: sticky !important; top: 0 !important; z-index: 99997 !important;
-        margin-bottom: 10px !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-_TICKER_ITEMS = (
-    '<span class="tk-item">🟡 XAU/USD&nbsp;<b>$2,468.40</b>&nbsp;'
-    '<span class="up">+0.84%</span></span>'
-    '<span class="tk-item">🪙 BTC/USDT&nbsp;<b>$78,820.00</b>&nbsp;'
-    '<span class="up">+2.15%</span></span>'
-    '<span class="tk-item">🇮🇳 NIFTY 50&nbsp;<b>24,310.80</b>&nbsp;'
-    '<span class="down">-0.24%</span></span>'
-    '<span class="tk-item">🇺🇸 S&amp;P 500&nbsp;<b>5,840.10</b>&nbsp;'
-    '<span class="up">+0.41%</span></span>'
-    '<span class="tk-item">💱 EUR/USD&nbsp;<b>1.0825</b>&nbsp;'
-    '<span class="down">-0.08%</span></span>'
-)
-_ticker_html = f"""
-<style>
-  html, body {{ margin:0; padding:0; background: transparent; overflow: hidden; }}
-  .tk-outer {{
-    width: 100%; overflow: hidden; white-space: nowrap;
-    background: rgba(14,17,27,0.6); backdrop-filter: blur(10px);
-    border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
-    padding: 10px 0;
-  }}
-  .tk-track {{
-    display: inline-block; white-space: nowrap;
-    animation: tk-slide 28s linear infinite;
-  }}
-  .tk-outer:hover .tk-track {{ animation-play-state: paused; }}
-  .tk-item {{
-    display: inline-block; color: #e8eaf0; font-family: sans-serif;
-    font-size: 15px; padding: 0 34px; border-right: 1px solid rgba(255,255,255,0.12);
-  }}
-  .up {{ color: #4ade80; font-weight: 600; }}
-  .down {{ color: #f87171; font-weight: 600; }}
-  @keyframes tk-slide {{
-    from {{ transform: translateX(-50%); }}
-    to   {{ transform: translateX(0%); }}
-  }}
-</style>
-<div class="tk-outer">
-  <div class="tk-track">{_TICKER_ITEMS}{_TICKER_ITEMS}</div>
-</div>
-"""
-with st.container(key="ssad_ticker_wrap"):
-    components.html(_ticker_html, height=58)
 
 # ==========================================
 # 🤖 FLOATING TRANSLUCENT AI BOT
@@ -596,7 +1128,7 @@ with st.container(key="ssad_ticker_wrap"):
 st.markdown(
     """
     <style>
-    /* Floating pill-shaped toggle button, bottom-right of the viewport */
+    /* Cute glass floating co-pilot button */
     .st-key-ssad_bot_fab {
         position: fixed !important;
         bottom: 28px !important;
@@ -605,32 +1137,36 @@ st.markdown(
         width: auto !important;
     }
     .st-key-ssad_bot_fab button {
-        border-radius: 30px !important;
-        padding: 14px 22px !important;
-        font-size: 17px !important;
-        font-weight: 600 !important;
-        background: rgba(80, 140, 255, 0.22) !important;
-        backdrop-filter: blur(14px) saturate(160%) !important;
-        -webkit-backdrop-filter: blur(14px) saturate(160%) !important;
-        border: 1px solid rgba(140, 180, 255, 0.55) !important;
-        box-shadow: 0 6px 26px rgba(0,0,0,0.5), 0 0 0 4px rgba(80,140,255,0.08) !important;
+        border-radius: 999px !important;
+        padding: 12px 19px !important;
+        font-size: 16px !important;
+        font-weight: 700 !important;
+        background: linear-gradient(135deg, rgba(33,35,57,0.82), rgba(89,64,126,0.66)) !important;
+        backdrop-filter: blur(18px) saturate(170%) !important;
+        -webkit-backdrop-filter: blur(18px) saturate(170%) !important;
+        border: 1px solid rgba(255,255,255,0.22) !important;
+        box-shadow: 0 12px 36px rgba(0,0,0,0.48), 0 0 24px rgba(155,120,255,0.22) !important;
         color: #fff !important;
     }
-    /* Floating translucent chat panel */
+    .st-key-ssad_bot_fab button:hover {
+        transform: translateY(-2px) scale(1.02);
+        border-color: rgba(255,255,255,0.36) !important;
+    }
+    /* Floating translucent co-pilot shell */
     .st-key-ssad_bot_panel {
         position: fixed !important;
         bottom: 104px !important;
         right: 28px !important;
-        width: 400px !important;
-        max-height: 68vh !important;
+        width: 430px !important;
+        max-height: 72vh !important;
         overflow-y: auto !important;
         z-index: 999999 !important;
-        background: rgba(14, 17, 27, 0.55) !important;
+        background: linear-gradient(160deg, rgba(13,16,29,0.76), rgba(48,34,73,0.68)) !important;
         backdrop-filter: blur(20px) saturate(150%) !important;
         -webkit-backdrop-filter: blur(20px) saturate(150%) !important;
         border: 1px solid rgba(255, 255, 255, 0.16) !important;
-        border-radius: 18px !important;
-        box-shadow: 0 10px 40px rgba(0,0,0,0.5) !important;
+        border-radius: 28px !important;
+        box-shadow: 0 18px 55px rgba(0,0,0,0.58), 0 0 35px rgba(135,105,255,0.12) !important;
         padding: 6px 4px !important;
     }
     </style>
@@ -645,13 +1181,21 @@ if st.button(fab_label, key="ssad_bot_fab", help="Chat, signals & strategy build
 
 if st.session_state.bot_open:
     with st.container(key="ssad_bot_panel"):
-        st.markdown("##### 🤖 AI Trading Co-Pilot")
-        bot_tab_chat, bot_tab_signals, bot_tab_set = st.tabs(
-            ["💬 Chat", "📡 Signals", "⚙️"]
+        st.markdown("### 🧸✨ Nova — Trading Co-Pilot")
+        st.caption("Your market companion · voice, signals, risk & EA-ready alerts")
+        st.markdown(
+            "<div style='display:flex;gap:7px;flex-wrap:wrap;margin:4px 0 12px 0'>"
+            "<span style='padding:5px 10px;border-radius:999px;background:rgba(80,220,150,.12);border:1px solid rgba(80,220,150,.25);font-size:12px'>● Market Watch</span>"
+            "<span style='padding:5px 10px;border-radius:999px;background:rgba(120,150,255,.12);border:1px solid rgba(120,150,255,.25);font-size:12px'>✦ Signal Engine</span>"
+            "<span style='padding:5px 10px;border-radius:999px;background:rgba(255,190,90,.12);border:1px solid rgba(255,190,90,.25);font-size:12px'>🛡 Risk Guard</span>"
+            "</div>", unsafe_allow_html=True
+        )
+        bot_tab, bot_tab_signals, bot_tab_guardian, bot_tab_set = st.tabs(
+            ["💬 Talk", "📡 Live Signals", "🛡️ Risk Guardian", "⚙️ Settings"]
         )
 
         # ---------------- CHAT TAB (text + voice) ----------------
-        with bot_tab_chat:
+        with bot_tab:
             for msg in st.session_state.chat_messages[-30:]:
                 with st.chat_message(msg["role"]):
                     st.write(msg["content"])
@@ -670,14 +1214,29 @@ if st.session_state.bot_open:
                     .replace("\n", " ")
                     .replace('"', "'")
                 )
+                voice_name = st.session_state.get("voice_name", "Auto / Best available")
+                safe_voice_name = voice_name.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${").replace('"', '\\"')
                 components.html(
                     f"""
                     <script>
                     try {{
-                        const u = new SpeechSynthesisUtterance("{speak_text[:600]}");
-                        u.rate = 1.0;
-                        window.parent.speechSynthesis.cancel();
-                        window.parent.speechSynthesis.speak(u);
+                        const text = "{speak_text[:600]}";
+                        const preferred = "{safe_voice_name}";
+                        const speak = () => {{
+                            const voices = window.parent.speechSynthesis.getVoices();
+                            const preferredVoice = preferred !== "Auto / Best available"
+                                ? voices.find(v => v.name === preferred)
+                                : (voices.find(v => /Samantha|Ava|Jenny|Zira|Google US English/i.test(v.name)) || voices.find(v => /^en[-_]/i.test(v.lang)) || voices[0]);
+                            const u = new SpeechSynthesisUtterance(text);
+                            if (preferredVoice) u.voice = preferredVoice;
+                            u.rate = 0.96;
+                            u.pitch = 1.02;
+                            u.volume = 1.0;
+                            window.parent.speechSynthesis.cancel();
+                            window.parent.speechSynthesis.speak(u);
+                        }};
+                        if (window.parent.speechSynthesis.getVoices().length) speak();
+                        else window.parent.speechSynthesis.onvoiceschanged = speak;
                     }} catch (e) {{}}
                     </script>
                     """,
@@ -781,7 +1340,7 @@ if st.session_state.bot_open:
                     f"Z-Score {z:.2f}, Volume Surge {vol_surge:.2f}x. "
                     f"Rule-based call: {call}."
                 )
-                if st.button("Ask Claude to interpret this signal", key="ssad_sig_ask"):
+                if st.button("Ask Nova to interpret this signal", key="ssad_sig_ask"):
                     send_chat_message(
                         "Interpret the current chart signal and suggest what to watch for next.",
                         context_summary=sig_context,
@@ -789,6 +1348,51 @@ if st.session_state.bot_open:
                     st.rerun()
             else:
                 st.info("Not enough data loaded yet for a signal.")
+
+
+        # ---------------- PROP-FIRM GUARDIAN TAB ----------------
+        with bot_tab_guardian:
+            st.markdown("### 🧸 Risk Guardian")
+            st.caption("Persistent account-aware monitoring. Levels are rule-engine outputs, not guarantees.")
+            g1, g2 = st.columns(2)
+            with g1:
+                st.metric("Account Mode", st.session_state.prop_account_type)
+                st.metric("Daily Loss", f"{prop_daily_loss_pct():.2f}% / {st.session_state.prop_daily_loss_limit_pct:.2f}%")
+            with g2:
+                st.metric("Drawdown", f"{prop_drawdown_pct():.2f}% / {st.session_state.prop_max_drawdown_pct:.2f}%")
+                st.metric("Max Trade Risk", f"{st.session_state.prop_max_trade_risk_pct:.2f}%")
+
+            if global_df is not None and len(global_df) >= 25:
+                guardian_sig = make_signal_snapshot(global_price, global_df, "Gold (XAU/USD)")
+                if guardian_sig:
+                    badge = "🟢 READY" if guardian_sig["risk_ok"] else "🔴 BLOCKED"
+                    st.markdown(f"#### {badge} {guardian_sig['side']} setup")
+                    a, b, c = st.columns(3)
+                    a.metric("Entry", f"{guardian_sig['entry']:.2f}")
+                    b.metric("Stop Loss", f"{guardian_sig['sl']:.2f}")
+                    c.metric("TP1", f"{guardian_sig['tp1']:.2f}")
+                    st.metric("TP2", f"{guardian_sig['tp2']:.2f}")
+                    st.caption(
+                        f"Confidence {guardian_sig['confidence']:.0f}% · "
+                        f"RSI {guardian_sig['rsi']:.1f} · "
+                        f"Volume {guardian_sig['volume_ratio']:.2f}x"
+                    )
+                    if guardian_sig["risk_ok"]:
+                        st.success(guardian_sig["risk_reason"])
+                    else:
+                        st.error(guardian_sig["risk_reason"])
+                    if st.button("🔔 Create Alert", key="guardian_alert"):
+                        st.session_state.last_signal_snapshot = guardian_sig
+                        append_notification(
+                            f"{guardian_sig['asset']} {guardian_sig['side']} signal",
+                            build_signal_message(guardian_sig),
+                            "SIGNAL",
+                        )
+                        st.success("Signal added to the in-app notification queue.")
+                else:
+                    st.info("Waiting for enough market data.")
+            else:
+                st.info("Market feed is still loading.")
 
         # ---------------- BOT SETTINGS TAB ----------------
         with bot_tab_set:
@@ -798,101 +1402,275 @@ if st.session_state.bot_open:
                 type="password",
             )
             st.session_state.claude_model = st.text_input(
-                "Claude model", value=st.session_state.claude_model
+                "AI model (Anthropic/Claude backend)", value=st.session_state.claude_model
             )
             st.session_state.voice_enabled = st.checkbox(
-                "Speak replies out loud", value=st.session_state.voice_enabled
+                "🔊 Speak replies out loud", value=st.session_state.voice_enabled
             )
+            voice_options = ["Auto / Best available"]
+            voice_options += [
+                "Samantha", "Ava", "Jenny", "Microsoft Zira", "Google US English"
+            ]
+            current_voice = st.session_state.get("voice_name", "Auto / Best available")
+            selected_voice = st.selectbox(
+                "Co-Pilot voice", voice_options,
+                index=voice_options.index(current_voice) if current_voice in voice_options else 0,
+                help="Uses the voices installed in your browser/operating system. Exact availability varies by device."
+            )
+            st.session_state.voice_name = selected_voice
             st.caption(
                 "Voice input/output uses your browser's built-in speech engine "
                 "(Chrome/Edge work best) — no extra key needed for that part."
             )
 
+            st.divider()
+
+# --- DASHBOARD VISUAL HELPERS ---
+def sparkline_svg(points, stroke='#68a8ff', fill='rgba(104,168,255,.10)'):
+    pts=[float(x) for x in points]; mn,mx=min(pts),max(pts); span=(mx-mn) or 1
+    coords=[]
+    for i,v in enumerate(pts):
+        x=4+(i/(len(pts)-1))*192; y=45-((v-mn)/span)*36; coords.append(f'{x:.1f},{y:.1f}')
+    poly=' '.join(coords)
+    return f"<svg class='ssad-mini-chart' viewBox='0 0 200 52' preserveAspectRatio='none'><polyline points='{poly}' fill='none' stroke='{stroke}' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/><polyline points='4,49 {poly} 196,49' fill='{fill}' stroke='none' opacity='.55'/></svg>"
+
+def action_art(kind):
+    arts={
+      'chart':'<svg viewBox="0 0 120 54" width="120" height="54"><path d="M5 45 L25 35 L40 39 L58 19 L74 27 L95 8 L115 16" fill="none" stroke="#68a8ff" stroke-width="3"/><path d="M5 45 L25 35 L40 39 L58 19 L74 27 L95 8 L115 16 L115 52 L5 52Z" fill="rgba(104,168,255,.10)"/><circle cx="95" cy="8" r="4" fill="#39e58c"/></svg>',
+      'risk':'<svg viewBox="0 0 120 54" width="120" height="54"><circle cx="42" cy="27" r="20" fill="none" stroke="#f6c85f" stroke-width="7" stroke-dasharray="72 55"/><circle cx="42" cy="27" r="20" fill="none" stroke="#39e58c" stroke-width="7" stroke-dasharray="42 85" transform="rotate(-35 42 27)"/><text x="42" y="31" text-anchor="middle" fill="#fff" font-size="10" font-weight="800">1.8R</text><path d="M78 39 L88 29 L97 35 L114 14" fill="none" stroke="#68a8ff" stroke-width="3"/></svg>',
+      'broker':'<svg viewBox="0 0 120 54" width="120" height="54"><rect x="6" y="10" width="108" height="34" rx="8" fill="rgba(255,255,255,.035)" stroke="rgba(255,255,255,.12)"/><circle cx="23" cy="27" r="6" fill="#39e58c"/><path d="M38 27 H95" stroke="#68a8ff" stroke-width="3"/><path d="M83 19 L96 27 L83 35" fill="none" stroke="#68a8ff" stroke-width="3"/></svg>',
+      'calendar':'<svg viewBox="0 0 120 54" width="120" height="54"><rect x="8" y="8" width="104" height="39" rx="7" fill="rgba(255,255,255,.035)" stroke="rgba(255,255,255,.12)"/><path d="M8 19 H112" stroke="#68a8ff"/><path d="M27 5 V15 M93 5 V15" stroke="#f6c85f" stroke-width="4" stroke-linecap="round"/><circle cx="30" cy="31" r="4" fill="#ff5c68"/><circle cx="52" cy="31" r="4" fill="#f6c85f"/><circle cx="74" cy="31" r="4" fill="#39e58c"/></svg>',
+      'ai':'<svg viewBox="0 0 120 54" width="120" height="54"><circle cx="37" cy="27" r="19" fill="rgba(104,168,255,.12)" stroke="#68a8ff"/><path d="M28 28 Q37 15 46 28 Q37 39 28 28Z" fill="none" stroke="#39e58c" stroke-width="2.5"/><path d="M66 15 L73 27 L66 39 M86 15 L79 27 L86 39" fill="none" stroke="#f6c85f" stroke-width="3" stroke-linecap="round"/></svg>',
+      'quant':'<svg viewBox="0 0 120 54" width="120" height="54"><rect x="8" y="8" width="104" height="38" rx="8" fill="rgba(104,168,255,.06)" stroke="rgba(104,168,255,.35)"/><path d="M18 37 L36 28 L50 32 L67 18 L82 23 L101 11" fill="none" stroke="#68a8ff" stroke-width="3"/><circle cx="101" cy="11" r="4" fill="#39e58c"/><path d="M24 14 V22 M32 14 V22 M40 14 V22" stroke="#f6c85f" stroke-width="2"/></svg>'}
+    return arts[kind]
+
 # ==========================================
 # 📊 VIEW 1: DASHBOARD
 # ==========================================
-if st.session_state.active_tab == "📊 Dashboard":
-    st.title("Smart Session Anomaly Detector")
-    st.caption("Multi-Asset Quantitative Intelligence & Risk Framework")
+if st.session_state.active_tab == '📊 Dashboard':
+    # Compact floating market strip — uses the existing live-feed functions.
+    def _floating_market(symbol, label, category, fallback_ticker=None, small=False, no_currency=False):
+        live = get_live(symbol) if symbol else None
+        if live:
+            price = live["price"]
+            pct = live["pct"]
+            history = live.get("history", [price, price])
+        elif fallback_ticker:
+            df = load_ohlcv(fallback_ticker, period="5d", interval="15m")
+            if df.empty or len(df) < 2:
+                return (label, "—", "0.00%", "up", [1, 1], category)
+            history = df["Close"].tail(12).tolist()
+            price = float(history[-1])
+            prev = float(history[0]) if history else price
+            pct = ((price - prev) / prev * 100) if prev else 0.0
+        else:
+            return (label, "—", "0.00%", "up", [1, 1], category)
 
-    st.markdown("### Quick Actions")
-    q1, q2, q3, q4, q5 = st.columns(5)
+        if no_currency:
+            price_str = f"{price:,.2f}"
+        elif small:
+            price_str = f"{price:,.4f}"
+        else:
+            price_str = f"${price:,.2f}"
+        return (label, price_str, f"{pct:+.2f}%", "up" if pct >= 0 else "down", history, category)
 
-    with q1:
-        with st.container(border=True):
-            st.markdown("#### 📈 Chart Analysis")
-            st.caption("Live TradingView viewport with anomaly detection markers.")
-            st.button(
-                "Open Charts →",
-                key="btn_qa_charts",
-                use_container_width=True,
-                on_click=switch_page,
-                args=("📈 Chart Analysis",),
-            )
+    floating_markets = [
+        _floating_market("OANDA:XAU_USD", "XAU/USD", "forex", default_cfg.get("yf"), no_currency=True),
+        _floating_market("BTCUSDT", "BTC/USDT", "crypto", "BTC-USD"),
+        _floating_market("OANDA:EUR_USD", "EUR/USD", "forex", "EURUSD=X", small=True),
+        _floating_market("AAPL", "AAPL", "us_equity", "AAPL"),
+        _floating_market("", "NIFTY 50", "nse", "^NSEI", no_currency=True),
+        _floating_market("ETHUSDT", "ETH/USDT", "crypto", "ETH-USD"),
+        _floating_market("NVDA", "NVDA", "us_equity", "NVDA"),
+       _floating_market("MSFT", "MSFT", "us_equity", "MSFT"),
+       _floating_market("TSLA", "TSLA", "us_equity", "TSLA"),
+       _floating_market("OANDA:GBP_USD", "GBP/USD", "forex", "GBPUSD=X"),
+       _floating_market("OANDA:USD_JPY", "USD/JPY", "forex", "USDJPY=X"),
+       _floating_market("AMZN", "AMZN", "us_equity", "AMZN"),
+    ]
 
-    with q2:
-        with st.container(border=True):
-            st.markdown("#### 🧮 Pip & Risk Engine")
-            st.caption("Calculate exact position sizing and risk-to-reward ratios.")
-            st.button(
-                "Open Calculator →",
-                key="btn_qa_calc",
-                use_container_width=True,
-                on_click=switch_page,
-                args=("🧮 Pip & Risk Calculator",),
-            )
-
-    with q3:
-        with st.container(border=True):
-            st.markdown("#### ⚡ Broker Gateway")
-            st.caption(
-                "Route mock or live WebSockets trades directly to MT5 or Binance."
-            )
-            st.button(
-                "Open Gateway →",
-                key="btn_qa_broker",
-                use_container_width=True,
-                on_click=switch_page,
-                args=("⚡ Broker Gateway",),
-            )
-
-    with q4:
-        with st.container(border=True):
-            st.markdown("#### 📰 News Trading")
-            st.caption("Open the news timing and economic calendar workspace.")
-            st.button(
-                "Open News Trading →",
-                key="btn_qa_cal",
-                use_container_width=True,
-                on_click=switch_page,
-                args=("📰 News Trading",),
-            )
-
-    with q5:
-        with st.container(border=True):
-            st.markdown("#### 🤖 AI Co-Pilot")
-            st.caption("Chat, voice, live signals & your saved strategies/EAs.")
-            st.button(
-                "Open Co-Pilot →",
-                key="btn_qa_bot",
-                use_container_width=True,
-                on_click=open_bot,
-            )
-
-    st.divider()
-    st.markdown("### Recent Trade Activity")
-    if len(st.session_state.positions) > 0:
-        st.dataframe(
-            pd.DataFrame(st.session_state.positions), use_container_width=True
+    floating_cards = []
+    for label, price, move, cls, points, category in floating_markets:
+        floating_cards.append(
+            f'<div class="ssad-floating-market">'
+            f'<div class="ssad-floating-top"><span class="ssad-floating-dot"></span>'
+            f'<span>{label}</span>{status_badge(category)}</div>'
+            f'<div class="ssad-floating-price">{price}</div>'
+            f'<div class="ssad-floating-move {cls}">{move}</div>'
+            f'{sparkline_svg(points, "#39e58c" if cls == "up" else "#ff5c68", "rgba(57,229,140,.08)" if cls == "up" else "rgba(255,92,104,.08)")}'
+            f'</div>'
         )
+    cards_html = "".join(floating_cards)
+    st.markdown(
+        f'<div class="ssad-floating-viewport"><div class="ssad-floating-track">'
+        f'{cards_html}{cards_html}'
+        f'</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    # Globe artwork embedded directly in this Python file — no separate PNG required.
+    _globe_b64 = base64.b64encode(
+        Path(__file__).with_name("trading_hero.png").read_bytes()
+    ).decode("utf-8")
+    _globe_src = f"data:image/png;base64,{_globe_b64}"
+        # Clean hero: no large chart and no right-side panel.
+    hero_html = '''
+    <div class="ssad-hero ssad-hero-clean" style="background-image: linear-gradient(90deg, rgba(5,10,22,.98) 0%, rgba(5,10,22,.90) 34%, rgba(5,10,22,.58) 65%, rgba(5,10,22,.30) 100%), url(__GLOBE_SRC__); background-size: cover; background-position: center; background-repeat: no-repeat;">
+        <div class="ssad-hero-grid"></div>
+        <div class="ssad-hero-glow"></div>
+        <div class="ssad-hero-copy">
+            <div class="ssad-eyebrow">QUANT TRADING TERMINAL <span>•</span> SESSION INTELLIGENCE</div>
+            <h1>Smart Session<br/><span>Anomaly Detector</span></h1>
+            <p>Multi-asset market intelligence, anomaly detection, execution controls and systematic strategy research — all in one professional workspace.</p>
+            <div class="ssad-chip-row">
+                <span class="ssad-chip live">● ML ENGINE ONLINE</span>
+                <span class="ssad-chip blue">◎ MULTI-MARKET</span>
+                <span class="ssad-chip purple">◷ MULTI-TIMEFRAME ANALYSIS</span>
+                <span class="ssad-chip cyan">↗ FLEXIBLE EXECUTION</span>
+            </div>
+            <div class="ssad-feature-line">
+                <span>◉ LIVE MARKET DATA</span><b>•</b>
+                <span>♧ ANOMALY MONITORING</span><b>•</b>
+                <span>◎ SIGNAL GENERATION</span>
+            </div>
+        </div>
+        <div class="ssad-hero-orbit orbit-one"></div>
+        <div class="ssad-hero-orbit orbit-two"></div>
+        <div class="ssad-hero-node node-one"></div>
+        <div class="ssad-hero-node node-two"></div>
+        <div class="ssad-hero-node node-three"></div>
+    </div>
+    '''
+    hero_html = hero_html.replace("__GLOBE_SRC__", _globe_src)
+    st.markdown(hero_html, unsafe_allow_html=True)
+    
+    st.markdown('<div class="ssad-section-title ssad-section-title-spaced">Workspace</div>', unsafe_allow_html=True)
+
+    # ------------------------------------------------------------
+    # LIVE WORKSPACE METRICS
+    # These values come from the app's existing live feed/session
+    # state. No placeholder trading numbers are injected.
+    # ------------------------------------------------------------
+    # IMPORTANT: reuse the EXACT XAU/USD values already calculated for the
+    # floating market card above. Do not calculate the percentage a second time.
+    # This guarantees that the Workspace and floating card can never disagree.
+    _xau_card = floating_markets[0]
+    _ws_price = float(str(_xau_card[1]).replace(",", "").replace("$", "")) if _xau_card[1] != "—" else float(global_price)
+    _ws_pct = float(str(_xau_card[2]).replace("%", ""))
+    _ws_hist = list(_xau_card[4]) if len(_xau_card) > 4 else []
+    if len(_ws_hist) < 2 and global_df is not None and not global_df.empty:
+        _ws_hist = global_df["Close"].tail(12).tolist()
+
+    # Use the same anomaly concept as Chart Analysis, based on the
+    # currently loaded Gold/XAU dataframe.
+    _ws_anomaly_count = 0
+    try:
+        if global_df is not None and len(global_df) >= 25:
+            _adf = global_df.copy()
+            _rm = _adf["Close"].rolling(20).mean()
+            _rs = _adf["Close"].rolling(20).std()
+            _z = (_adf["Close"] - _rm) / (_rs + 1e-9)
+            _vol_ma = _adf["Volume"].rolling(20).mean()
+            _vs = _adf["Volume"] / (_vol_ma + 1e-9)
+            _pivot = (
+                (_adf["High"] == _adf["High"].rolling(5, center=True).max())
+                | (_adf["Low"] == _adf["Low"].rolling(5, center=True).min())
+            )
+            _ws_anomaly_count = int((
+                _pivot & ((_z.abs() > 1.8) | (_vs > 2.0))
+            ).fillna(False).sum())
+    except Exception:
+        _ws_anomaly_count = 0
+
+    _ws_signal = None
+    try:
+        if global_df is not None and len(global_df) >= 25:
+            _ws_signal = make_signal_snapshot(_ws_price, global_df, "Gold (XAU/USD)")
+    except Exception:
+        _ws_signal = None
+
+    _ws_risk_pct = float(st.session_state.get("prop_max_trade_risk_pct", 0.50))
+    _ws_balance = float(st.session_state.get("account_balance", 100000.0))
+    _ws_risk_cash = _ws_balance * _ws_risk_pct / 100.0
+    if _ws_signal:
+        _ws_sl_distance = abs(float(_ws_signal["entry"]) - float(_ws_signal["sl"]))
+        _ws_rr = float(_ws_signal["rr"])
+        _ws_lots = _ws_risk_cash / (_ws_sl_distance * 100.0) if _ws_sl_distance > 0 else 0.0
     else:
-        st.info(
-            "No active trades recorded. Use 'Open Charts' or 'Open Gateway' to"
-            " route an execution order."
-        )
+        _ws_sl_distance = 0.0
+        _ws_rr = 0.0
+        _ws_lots = 0.0
+
+    _ws_broker = bool(st.session_state.get("broker_connected", False))
+    _ws_mode = str(st.session_state.get("broker_api_mode", "Paper / Demo"))
+    _ws_positions = len(st.session_state.get("positions", []))
+
+    _ws_result = st.session_state.get("last_backtest")
+    if not _ws_result and st.session_state.get("quant_runs"):
+        _ws_run = st.session_state.quant_runs[-1]
+        _ws_net = float(_ws_run.get("net_profit", 0.0))
+        _ws_win = float(_ws_run.get("win_rate", 0.0))
+        _ws_trades = int(_ws_run.get("trades", 0)) if isinstance(_ws_run.get("trades", 0), (int, float)) else 0
+        _ws_strategy = _ws_run.get("name", "Latest run")
+    elif _ws_result:
+        _ws_net = float(_ws_result.get("net_profit", 0.0))
+        _ws_win = float(_ws_result.get("win_rate", 0.0))
+        _ws_trades = len(_ws_result.get("trades", []))
+        _ws_strategy = "Last backtest"
+    else:
+        _ws_net = _ws_win = 0.0
+        _ws_trades = 0
+        _ws_strategy = "No backtest yet"
+
+    _ws_price_move_class = "up" if _ws_pct >= 0 else "down"
+    _ws_price_move = f"{_ws_pct:+.2f}%"
+    _ws_signal_side = _ws_signal["side"] if _ws_signal else "WAITING"
+    _ws_signal_cls = "good" if _ws_signal else "warn"
+    _ws_broker_label = "CONNECTED" if _ws_broker else "NOT CONNECTED"
+    _ws_broker_cls = "good" if _ws_broker else "warn"
+    _ws_net_cls = "good" if _ws_net >= 0 else "bad"
+
+    workspace_cards = [
+        (
+            "chart", "Markets & Analysis",
+            f"<div class='ssad-workspace-live'><div><div class='ssad-workspace-price'>XAU/USD {_ws_price:,.2f}</div><div class='ssad-workspace-move {_ws_price_move_class}'>{_ws_price_move} today</div></div></div>"
+            f"<div class='ssad-workspace-meta'><span class='ssad-workspace-pill'>ANOMALIES {_ws_anomaly_count}</span><span class='ssad-workspace-pill {_ws_signal_cls}'>SIGNAL {_ws_signal_side}</span></div>",
+            "Candlesticks, indicators, anomaly zones and AI signals.",
+            "Open Markets →", "📈 Chart Analysis",
+        ),
+        (
+            "risk", "Risk Management",
+            f"<div class='ssad-workspace-stat-row'><div class='ssad-workspace-stat'><b>{_ws_risk_pct:.2f}%</b><span>Risk / trade</span></div><div class='ssad-workspace-stat'><b>1:{_ws_rr:.1f}</b><span>R:R</span></div><div class='ssad-workspace-stat'><b>{_ws_lots:.2f}</b><span>Lots</span></div></div>"
+            f"<div class='ssad-workspace-meta'><span class='ssad-workspace-pill'>CAPITAL ${_ws_balance:,.0f}</span><span class='ssad-workspace-pill'>RISK ${_ws_risk_cash:,.0f}</span></div>",
+            "Position sizing, stop distance and risk-to-reward planning.",
+            "Calculate Risk →", "🧮 Pip & Risk Calculator",
+        ),
+        (
+            "broker", "Trade Execution",
+            f"<div class='ssad-workspace-stat-row'><div class='ssad-workspace-stat'><b>{_ws_broker_label}</b><span>Broker</span></div><div class='ssad-workspace-stat'><b>{_ws_mode}</b><span>Mode</span></div><div class='ssad-workspace-stat'><b>{_ws_positions}</b><span>Positions</span></div></div>"
+            f"<div class='ssad-workspace-meta'><span class='ssad-workspace-pill {_ws_broker_cls}'>GATEWAY {_ws_broker_label}</span></div>",
+            "Connect and manage paper, live or supported funded/broker execution.",
+            "Open Execution →", "⚡ Broker Gateway",
+        ),
+    ]
+
+    qa = st.columns(3, gap="medium")
+    for col, (kind, title, live_html, desc, btn, target) in zip(qa, workspace_cards):
+        with col:
+            st.markdown(
+                f'<div class="ssad-action-card ssad-action-card-compact"><div class="art">{action_art(kind)}</div><h3>{title}</h3>{live_html}<p>{desc}</p></div>',
+                unsafe_allow_html=True,
+            )
+            st.button(
+                btn, key=f"pro_qa_{kind}", use_container_width=True,
+                on_click=switch_page, args=(target,)
+            )
+
+    st.markdown('<div class="ssad-footer-note">Workspace metrics are calculated from the existing live market feed, risk settings, broker state and backtest results.</div>', unsafe_allow_html=True)
+
 
 # ==========================================
-# 📈 VIEW 2: AI TRADE & CHARTS
+# 📈 VIEW 2: CHART ANALYSIS
 # ==========================================
 elif st.session_state.active_tab == "📈 Chart Analysis":
     st.title("📈 Smart Session Anomaly Detector | Charts")
@@ -949,7 +1727,39 @@ elif st.session_state.active_tab == "📈 Chart Analysis":
         components.html(tv_widget_html, height=780)
 
 
+        # --- PROFESSIONAL TECHNICAL CHART ---
+        st.markdown("### 📊 Technical Chart & Signal Workspace")
+        chart_df = load_ohlcv(inst_cfg["yf"], period="1mo", interval=chart_res)
+        if chart_df is not None and len(chart_df) >= 30:
+            ind_fast, ind_slow = st.columns(2)
+            with ind_fast:
+                tech_fast = st.number_input("Fast EMA", 2, 100, 9, key="tech_fast")
+            with ind_slow:
+                tech_slow = st.number_input("Slow EMA", 3, 200, 21, key="tech_slow")
+            tech_df = add_indicators(chart_df, tech_fast, tech_slow)
+            fig_tech = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.04, row_heights=[0.78,0.22])
+            fig_tech.add_trace(go.Candlestick(x=tech_df.index, open=tech_df["Open"], high=tech_df["High"], low=tech_df["Low"], close=tech_df["Close"], name="Price"), row=1,col=1)
+            fig_tech.add_trace(go.Scatter(x=tech_df.index,y=tech_df["EMA Fast"],name=f"EMA {tech_fast}",mode="lines"),row=1,col=1)
+            fig_tech.add_trace(go.Scatter(x=tech_df.index,y=tech_df["EMA Slow"],name=f"EMA {tech_slow}",mode="lines"),row=1,col=1)
+            fig_tech.add_trace(go.Scatter(x=tech_df.index,y=tech_df["BB Upper"],name="BB Upper",mode="lines",line=dict(dash="dot")),row=1,col=1)
+            fig_tech.add_trace(go.Scatter(x=tech_df.index,y=tech_df["BB Lower"],name="BB Lower",mode="lines",line=dict(dash="dot")),row=1,col=1)
+            longs=tech_df[tech_df["Long Signal"]]; shorts=tech_df[tech_df["Short Signal"]]
+            if not longs.empty: fig_tech.add_trace(go.Scatter(x=longs.index,y=longs["Low"]*0.998,mode="markers",name="LONG",marker=dict(symbol="triangle-up",size=11)),row=1,col=1)
+            if not shorts.empty: fig_tech.add_trace(go.Scatter(x=shorts.index,y=shorts["High"]*1.002,mode="markers",name="SHORT",marker=dict(symbol="triangle-down",size=11)),row=1,col=1)
+            fig_tech.add_trace(go.Bar(x=tech_df.index,y=tech_df["Volume"],name="Volume"),row=2,col=1)
+            fig_tech.update_layout(template="plotly_dark",height=620,xaxis_rangeslider_visible=False,margin=dict(l=10,r=10,t=20,b=10),paper_bgcolor="#0b0e14",plot_bgcolor="#0b0e14")
+            st.plotly_chart(fig_tech,use_container_width=True,config={"scrollZoom":True,"displaylogo":False})
+            latest=tech_df.iloc[-1]
+            s1,s2,s3,s4=st.columns(4)
+            s1.metric("Last Price",f"{latest['Close']:,.2f}")
+            s2.metric("RSI",f"{latest['RSI']:.1f}")
+            s3.metric("EMA Trend","BULLISH" if latest['EMA Fast']>latest['EMA Slow'] else "BEARISH")
+            s4.metric("Volume vs MA",f"{latest['Volume']/max(latest['Volume MA'],1):.2f}x")
+        else:
+            st.info("Technical chart data is still syncing.")
+
         # --- DIRECT TRADE EXECUTION ON ACTIVE CHART ---
+        chart_trade_price = float(chart_df["Close"].iloc[-1]) if chart_df is not None and len(chart_df) else float(global_price)
         st.markdown("### ⚡ Direct Trade Execution")
         trade_col1, trade_col2, trade_col3 = st.columns([1, 1, 2])
         with trade_col1:
@@ -967,10 +1777,10 @@ elif st.session_state.active_tab == "📈 Chart Analysis":
         with trade_col3:
             buy_col, sell_col = st.columns(2)
             if buy_col.button("🟢 BUY / LONG", use_container_width=True, key="chart_buy"):
-                place_chart_trade("BUY", chart_lots, inst_select, global_price)
+                place_chart_trade("BUY", chart_lots, inst_select, chart_trade_price)
                 st.success("BUY order routed from Chart Analysis.")
             if sell_col.button("🔴 SELL / SHORT", use_container_width=True, key="chart_sell"):
-                place_chart_trade("SELL", chart_lots, inst_select, global_price)
+                place_chart_trade("SELL", chart_lots, inst_select, chart_trade_price)
                 st.success("SELL order routed from Chart Analysis.")
 
         # --- EA EXECUTION PANEL ---
@@ -1186,180 +1996,320 @@ elif st.session_state.active_tab == "🧮 Pip & Risk Calculator":
 # ==========================================
 elif st.session_state.active_tab == "⚡ Broker Gateway":
     st.title("⚡ Smart Session Anomaly Detector | Execution Bridge")
-
-    col_g1, col_g2 = st.columns([1, 1.5])
-    with col_g1:
-        st.markdown("#### 🔗 Broker Gateway Setup")
-        target_broker = st.selectbox(
-            "Broker Gateway",
-            [
-                "MetaTrader 5 (MT5)",
-                "Zerodha (Kite)",
-                "Binance Futures",
-                "Interactive Brokers",
-            ],
-        )
-        if not st.session_state.broker_connected:
-            if st.button("Connect Gateway", use_container_width=True):
-                st.session_state.broker_connected = True
-                st.rerun()
-        else:
-            st.success(f"🟢 **{target_broker}** Bridge Active")
-            if st.button("Disconnect Gateway", use_container_width=True):
-                st.session_state.broker_connected = False
-                st.rerun()
-
-    with col_g2:
-        st.markdown("#### 📋 Open Position History")
-        if len(st.session_state.positions) > 0:
-            st.dataframe(
-                pd.DataFrame(st.session_state.positions), use_container_width=True
-            )
-            if st.button("Close All Positions", use_container_width=True):
-                st.session_state.positions = []
-                st.rerun()
-        else:
-            st.caption("No open market positions.")
-
-
-# ==========================================
-# 🧩 VIEW 5: STRATEGY BUILDER
-# ==========================================
-elif st.session_state.active_tab == "🧩 Strategy Lab":
-    st.title("🧩 Strategy Studio")
-    st.caption("Build rules visually, recreate a strategy you learned elsewhere, and save it for backtesting.")
-    method = st.radio("Start strategy", ["Build from scratch", "Recreate from video / notes", "Edit saved strategy"], horizontal=True, key="strategy_method")
-    existing_names = [x["name"] for x in st.session_state.saved_strategies]
-    if method == "Edit saved strategy" and existing_names:
-        edit_name = st.selectbox("Choose saved strategy", existing_names)
-        base = next(x for x in st.session_state.saved_strategies if x["name"] == edit_name)
-    else:
-        base = {}
-        if method == "Edit saved strategy":
-            st.info("Save a strategy first, then you can edit it here.")
-    with st.container(border=True):
-        c1,c2 = st.columns([1.5,1])
+    st.caption("Broker connection architecture with paper/demo execution by default.")
+    g1,g2=st.columns([1,1.2])
+    with g1:
+        st.markdown("#### 🔗 Connection Profile")
+        st.session_state.broker_name=st.selectbox("Broker / Gateway",["MetaTrader 5 (MT5)","Zerodha (Kite)","Binance Futures","Interactive Brokers"],index=["MetaTrader 5 (MT5)","Zerodha (Kite)","Binance Futures","Interactive Brokers"].index(st.session_state.broker_name))
+        st.session_state.broker_api_mode=st.radio("Execution Mode",["Paper / Demo","Live (manual approval)"],horizontal=True)
+        st.session_state.broker_api_endpoint=st.text_input("API / Bridge Endpoint",value=st.session_state.broker_api_endpoint,placeholder="https://...")
+        st.session_state.broker_api_key=st.text_input("API Key / Account ID",value=st.session_state.broker_api_key,type="password")
+        c1,c2=st.columns(2)
         with c1:
-            strategy_name = st.text_input("Strategy name", value=base.get("name", "My EMA Strategy" if method != "Recreate from video / notes" else "Recreated Strategy"))
+            if st.button("🔌 Connect",use_container_width=True): st.session_state.broker_connected=True; st.success("Gateway connected in application demo mode.")
         with c2:
-            strategy_type = st.selectbox("Strategy logic", ["EMA Crossover", "RSI Reversal", "Bollinger Breakout", "MACD Crossover"], index=["EMA Crossover","RSI Reversal","Bollinger Breakout","MACD Crossover"].index(base.get("type","EMA Crossover")) if base.get("type") in ["EMA Crossover","RSI Reversal","Bollinger Breakout","MACD Crossover"] else 0)
-        if method == "Recreate from video / notes":
-            source_notes = st.text_area("Paste strategy rules / transcript notes", placeholder="Describe the exact entry, exit, timeframe and risk rules from the video. Do not paste private credentials.", height=90)
-            st.caption("This field records the rules for you to structure; it does not automatically fetch or interpret a YouTube video URL.")
-        a,b,c,d = st.columns(4)
-        with a: fast_param = st.number_input("Fast period", 2, 200, int(base.get("fast",9)), key="lab_fast")
-        with b: slow_param = st.number_input("Slow period / RSI threshold", 2, 200, int(base.get("slow",21)), key="lab_slow")
-        with c: risk_param = st.slider("Risk per trade (%)", 0.25, 5.0, float(base.get("risk_pct",1.0)), 0.25, key="lab_risk")
-        with d: rr_param = st.slider("Risk / reward", 0.5, 5.0, float(base.get("rr",2.0)), 0.25, key="lab_rr")
-        st.markdown("**Entry and exit rules**")
-        entry_logic = st.text_input("Entry conditions", value=base.get("entry", "Fast EMA crosses above/below slow EMA"))
-        exit_logic = st.text_input("Exit conditions", value=base.get("exit", "Opposite crossover or stop-loss / take-profit"))
-        with st.expander("Advanced: optional code editor"):
-            code_language = st.selectbox("Code style", ["Python", "Pine Script"], key="lab_code_language")
-            edited_code = st.text_area("Strategy code (stored as text; not executed by this app)", value=base.get("code", "# Optional strategy notes / code\n"), height=150, key="lab_code")
-        if st.button("💾 Save Strategy", type="primary", use_container_width=True, key="save_strategy_v2"):
-            if not strategy_name.strip():
-                st.error("Enter a strategy name before saving.")
+            if st.button("⏹ Disconnect",use_container_width=True): st.session_state.broker_connected=False; st.info("Gateway disconnected.")
+        st.info("Live broker-side autonomous execution requires the broker's authenticated API/bridge and is intentionally not enabled by this UI alone.")
+    with g2:
+        st.markdown("#### 📋 Execution Monitor")
+        st.metric("Gateway Status","🟢 Connected" if st.session_state.broker_connected else "⚪ Offline")
+        st.metric("Execution Mode",st.session_state.broker_api_mode)
+        if st.session_state.positions:
+            st.dataframe(pd.DataFrame(st.session_state.positions),use_container_width=True,hide_index=True)
+            if st.button("Close All Demo Positions",use_container_width=True): st.session_state.positions=[]; st.rerun()
+        else: st.caption("No open positions in the application session.")
+
+# ==========================================
+# 🧪 VIEW 5: QUANT LAB
+# ==========================================
+elif st.session_state.active_tab == "🧪 Research Lab (legacy)":
+    st.title("🧪 Quant Lab")
+    st.caption("A structured research pipeline: formulate an idea, build the rules, backtest them, validate robustness, then prepare deployment.")
+
+    stages = ["💡 Idea", "🧱 Build", "🧪 Backtest", "🔬 Validate", "🚀 Deploy"]
+    current = st.session_state.quant_stage
+    st.markdown("<div class='ssad-status-card'><div style='display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap'>" + "".join([f"<span class='ssad-badge {'green' if x==current else 'blue'}'>{x}</span>" for x in stages]) + "</div></div>", unsafe_allow_html=True)
+
+    q1,q2 = st.columns([1.25,.75], gap='medium')
+    with q1:
+        st.markdown("#### 1. Research Brief")
+        idea_name = st.text_input("Strategy / Research Name", value="Session Momentum Research")
+        hypothesis = st.text_area("Market Hypothesis", value="Test whether a fast/slow moving-average regime can identify directional sessions with controlled risk.", height=90)
+        research_notes = st.text_area("Research Notes", value="Define the signal before looking at performance. Keep entry, exit and risk rules explicit.", height=90)
+        st.markdown("#### 2. Build the Rule Set")
+        qb1,qb2,qb3 = st.columns(3)
+        with qb1:
+            q_fast = st.number_input("Fast Period", 2, 100, 9, key="quant_fast")
+        with qb2:
+            q_slow = st.number_input("Slow Period", 3, 250, 21, key="quant_slow")
+        with qb3:
+            q_risk = st.slider("Risk / Trade %", 0.25, 5.0, 1.0, 0.25, key="quant_risk")
+        qc1,qc2 = st.columns(2)
+        with qc1:
+            q_entry = st.text_area("Entry Rules", value="LONG when fast EMA crosses above slow EMA; SHORT on the inverse.", height=85)
+        with qc2:
+            q_exit = st.text_area("Exit Rules", value="Exit on opposite signal or protective stop/target.", height=85)
+        st.markdown("#### 3. Backtest Configuration")
+        assets = list(MARKET_UNIVERSE["🇮🇳 Indian Equities (NSE)"].keys()) + ["Gold (XAU/USD)", "EUR/USD", "Bitcoin (BTC/USDT)"]
+        q1a,q1b,q1c = st.columns(3)
+        with q1a: q_asset=st.selectbox("Research Asset", assets, index=min(0,len(assets)-1), key="quant_asset")
+        with q1b: q_tf=st.selectbox("Timeframe", ["5m","15m","1h","4h","1D"], index=1, key="quant_tf")
+        with q1c: q_period=st.selectbox("History", ["1mo","3mo","6mo","1y"], index=2, key="quant_period")
+        run_quant = st.button("▶ Run Research Backtest", use_container_width=True, key="run_quant_bt")
+
+    with q2:
+        st.markdown("#### Research Checklist")
+        checks = [
+            ("Hypothesis written", bool(hypothesis.strip())),
+            ("Entry rules defined", bool(q_entry.strip())),
+            ("Exit rules defined", bool(q_exit.strip())),
+            ("Risk budget defined", q_risk > 0),
+            ("Historical test selected", bool(q_asset)),
+        ]
+        for label, ok in checks:
+            st.markdown(f"<div class='ssad-feed'><span>{'🟢' if ok else '⚪'} {label}</span><span class='meta'>{'READY' if ok else 'PENDING'}</span></div>", unsafe_allow_html=True)
+        st.markdown("#### Research Discipline")
+        st.info("Use the lab to separate research from execution. A strong backtest is not proof of future performance; review assumptions, costs, data quality and out-of-sample behavior before deployment.")
+        if st.button("🧭 Open Strategy Builder", use_container_width=True):
+            switch_page("🧩 Strategy Builder")
+        if st.button("🤖 Open EA Studio", use_container_width=True):
+            switch_page("🤖 EA / Expert Advisors")
+
+    if run_quant:
+        if q_fast >= q_slow:
+            st.warning("Fast Period should be smaller than Slow Period for this crossover research template.")
+        else:
+            cfg = next((group[q_asset] for group in MARKET_UNIVERSE.values() if q_asset in group), None)
+            if cfg:
+                qdf = load_ohlcv(cfg["yf"], period=q_period, interval=q_tf)
+                result = run_strategy_backtest(qdf, q_fast, q_slow, q_risk, 2.0)
+                if result:
+                    st.session_state.last_backtest = result
+                    st.session_state.quant_candidate = {"name":idea_name,"asset":q_asset,"timeframe":q_tf,"fast":q_fast,"slow":q_slow,"risk":q_risk,"hypothesis":hypothesis}
+                    st.session_state.quant_stage = "🧪 Backtest"
+                    st.session_state.quant_runs.append({"name":idea_name,"asset":q_asset,"timeframe":q_tf,"net_profit":result["net_profit"],"win_rate":result["win_rate"],"mdd":result["mdd"],"sharpe":result["sharpe"],"trades":len(result["trades"])})
+                    st.success("Research run completed. Review the diagnostics below before moving to validation.")
+                else:
+                    st.warning("Not enough historical data for this configuration.")
+
+    if st.session_state.last_backtest:
+        result = st.session_state.last_backtest
+        st.divider()
+        st.markdown("### 📊 Research Diagnostics")
+        m=st.columns(5)
+        m[0].metric("Net Profit",f"${result['net_profit']:,.2f}")
+        m[1].metric("Win Rate",f"{result['win_rate']:.1f}%")
+        m[2].metric("Max Drawdown",f"{result['mdd']:.2f}%")
+        m[3].metric("Sharpe",f"{result['sharpe']:.2f}")
+        m[4].metric("Trades",f"{len(result['trades'])}")
+        c1,c2=st.columns(2,gap='medium')
+        with c1:
+            eq=result["equity"]
+            fig=go.Figure()
+            fig.add_trace(go.Scatter(x=eq.index,y=eq.values,mode="lines",name="Equity"))
+            fig.update_layout(template="plotly_dark",height=330,title="Equity Curve",margin=dict(l=10,r=10,t=45,b=10),paper_bgcolor="#0b0e14",plot_bgcolor="#0b0e14")
+            st.plotly_chart(fig,use_container_width=True)
+        with c2:
+            if not result["trades"].empty:
+                pnl=result["trades"]["P&L"]
+                figp=go.Figure()
+                figp.add_trace(go.Bar(x=list(range(1,len(pnl)+1)),y=pnl,name="Trade P&L"))
+                figp.update_layout(template="plotly_dark",height=330,title="Trade Outcome Distribution",margin=dict(l=10,r=10,t=45,b=10),paper_bgcolor="#0b0e14",plot_bgcolor="#0b0e14")
+                st.plotly_chart(figp,use_container_width=True)
             else:
-                record = {"name":strategy_name.strip(),"type":strategy_type,"fast":int(fast_param),"slow":int(slow_param),"risk_pct":float(risk_param),"rr":float(rr_param),"entry":entry_logic,"exit":exit_logic,"code":edited_code if 'edited_code' in locals() else base.get("code", ""),"source_notes":source_notes if method == "Recreate from video / notes" else base.get("source_notes", "")}
-                st.session_state.saved_strategies = [x for x in st.session_state.saved_strategies if x["name"] != record["name"]] + [record]
-                st.success(f"Saved **{record['name']}**. Select it in Backtesting to test its implemented rule type.")
+                st.info("No completed trades to visualize.")
+        if st.session_state.quant_candidate:
+            cand=st.session_state.quant_candidate
+            st.markdown("#### 🔬 Validation Gate")
+            v1,v2,v3=st.columns(3)
+            with v1: st.checkbox("Review data assumptions", value=False, key="val_data")
+            with v2: st.checkbox("Run alternate period/timeframe", value=False, key="val_alt")
+            with v3: st.checkbox("Review drawdown tolerance", value=False, key="val_dd")
+            if st.button("🔍 Mark Candidate for Validation", use_container_width=True):
+                st.session_state.quant_stage="🔬 Validate"
+                st.success(f"{cand['name']} is marked for validation. This does not imply that the strategy is validated.")
+
+    if st.session_state.quant_runs:
+        st.divider()
+        st.markdown("### 🗂 Research Run History")
+        st.dataframe(pd.DataFrame(st.session_state.quant_runs).tail(20),use_container_width=True,hide_index=True)
+
+    if st.session_state.quant_stage == "🔬 Validate":
+        st.markdown("#### 🚀 Deployment Gate")
+        st.warning("Deployment should remain paper/demo until data assumptions, execution costs, risk limits and out-of-sample behavior have been reviewed.")
+        d1,d2=st.columns(2)
+        with d1:
+            if st.button("📝 Create EA Draft",use_container_width=True):
+                switch_page("🤖 EA / Expert Advisors")
+        with d2:
+            if st.button("📈 Review on Chart",use_container_width=True):
+                switch_page("📈 Chart Analysis")
+
+# ==========================================
+# 🧩 VIEW 6: STRATEGY BUILDER
+# ==========================================
+elif st.session_state.active_tab == "🧩 Strategy Builder":
+    st.title("🧩 Strategy Lab")
+    st.caption("Build a rule-based strategy visually, save it, then select it in Backtesting. The optional code editor is text-only and is never executed.")
+
+    mode = st.radio("Start with", ["Build from scratch", "Recreate from video / notes", "Edit saved strategy"], horizontal=True, key="sl_mode")
+    saved = st.session_state.saved_strategies
+    editing = None
+    if mode == "Edit saved strategy" and saved:
+        edit_name = st.selectbox("Choose saved strategy", [x["name"] for x in saved], key="sl_edit_pick")
+        editing = next((x for x in saved if x["name"] == edit_name), None)
+    elif mode == "Edit saved strategy":
+        st.info("Save a strategy first to enable editing.")
+
+    defaults = editing or {}
+    top1, top2 = st.columns([1.2, 1])
+    with top1:
+        strategy_name = st.text_input("Strategy name", value=defaults.get("name", "EMA Crossover"), key="sl_name")
+        strategy_type = st.selectbox("Signal model", ["EMA Crossover", "RSI Reversal", "Bollinger Breakout", "MACD Crossover"], index=["EMA Crossover", "RSI Reversal", "Bollinger Breakout", "MACD Crossover"].index(defaults.get("type", "EMA Crossover")) if defaults.get("type", "EMA Crossover") in ["EMA Crossover", "RSI Reversal", "Bollinger Breakout", "MACD Crossover"] else 0, key="sl_type")
+    with top2:
+        risk = st.number_input("Risk per trade (%)", min_value=0.1, max_value=5.0, value=float(defaults.get("risk", 1.0)), step=0.1, key="sl_risk")
+        rr = st.number_input("Reward : Risk", min_value=0.5, max_value=10.0, value=float(defaults.get("rr", 2.0)), step=0.25, key="sl_rr")
+
+    st.markdown("#### Signal parameters")
+    c1,c2,c3 = st.columns(3)
+    with c1: fast = st.number_input("Fast period / lookback", min_value=2, max_value=200, value=int(defaults.get("fast", 9)), key="sl_fast")
+    with c2: slow = st.number_input("Slow period / threshold", min_value=3, max_value=300, value=int(defaults.get("slow", 21)), key="sl_slow")
+    with c3: stop_pct = st.number_input("Stop loss (%)", min_value=0.05, max_value=20.0, value=float(defaults.get("stop_pct", 0.6)), step=0.05, key="sl_stop")
+    if strategy_type == "EMA Crossover" and fast >= slow:
+        st.warning("For an EMA crossover, the fast period should be smaller than the slow period.")
+
+    c1,c2 = st.columns(2)
+    with c1: entry_notes = st.text_input("Entry rule notes", value=defaults.get("entry", "Enter on confirmed crossover / signal"), key="sl_entry")
+    with c2: exit_notes = st.text_input("Exit rule notes", value=defaults.get("exit", "Exit on opposite signal or stop/target"), key="sl_exit")
+    video_notes = ""
+    if mode == "Recreate from video / notes":
+        st.markdown("#### Video or transcript notes")
+        st.caption("Paste the relevant transcript/rules. A URL alone is not automatically interpreted; confirm the rules before saving.")
+        video_notes = st.text_area("YouTube URL, transcript, or notes", height=90, key="sl_video_notes")
+
+    with st.expander("Advanced: optional code reference (not executed)"):
+        code_language = st.selectbox("Code format", ["Python", "Pine Script"], key="sl_code_lang")
+        code_text = st.text_area("Code reference", value=defaults.get("code", "# Optional strategy reference\n# Signals are calculated by the selected built-in model."), height=140, key="sl_code_text")
+        st.caption("For safety, this editor stores reference text only. It does not run arbitrary Python or Pine Script.")
+
+    if st.button("💾 Save strategy", type="primary", use_container_width=True, key="sl_save"):
+        if not strategy_name.strip():
+            st.error("Enter a strategy name before saving.")
+        elif strategy_type == "EMA Crossover" and fast >= slow:
+            st.error("Fast EMA must be lower than slow EMA.")
+        else:
+            item = {"name": strategy_name.strip(), "type": strategy_type, "fast": int(fast), "slow": int(slow), "risk": float(risk), "rr": float(rr), "stop_pct": float(stop_pct), "entry": entry_notes, "exit": exit_notes, "notes": video_notes, "code": code_text if 'code_text' in locals() else ""}
+            st.session_state.saved_strategies = [x for x in st.session_state.saved_strategies if x["name"] != item["name"]] + [item]
+            st.session_state.selected_saved_strategy = item["name"]
+            st.success(f"Saved '{item['name']}'. Select it in Backtesting to test historical data.")
+
     if st.session_state.saved_strategies:
         st.markdown("#### Saved strategies")
-        st.dataframe(pd.DataFrame([{ "Name":x["name"],"Type":x["type"],"Fast":x["fast"],"Slow":x["slow"],"Risk %":x["risk_pct"],"R:R":x["rr"]} for x in st.session_state.saved_strategies]), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame([{ "Name":x["name"], "Model":x["type"], "Fast":x["fast"], "Slow":x["slow"], "Risk %":x["risk"], "R:R":x["rr"]} for x in st.session_state.saved_strategies]), use_container_width=True, hide_index=True)
+        dup_col, del_col = st.columns(2)
+        with dup_col:
+            duplicate_from = st.selectbox("Duplicate", [x["name"] for x in st.session_state.saved_strategies], key="sl_dup_pick")
+            if st.button("Duplicate selected", key="sl_duplicate"):
+                original = next(x for x in st.session_state.saved_strategies if x["name"] == duplicate_from)
+                clone = dict(original); clone["name"] = original["name"] + " Copy"
+                st.session_state.saved_strategies.append(clone); st.success(f"Created {clone['name']}"); st.rerun()
+        with del_col:
+            delete_from = st.selectbox("Remove", [x["name"] for x in st.session_state.saved_strategies], key="sl_del_pick")
+            if st.button("Delete selected", key="sl_delete"):
+                st.session_state.saved_strategies = [x for x in st.session_state.saved_strategies if x["name"] != delete_from]
+                st.rerun()
+        st.caption("Saved strategies currently persist for this Streamlit session. Add a database/file store for persistence across restarts.")
 
 elif st.session_state.active_tab == "🧪 Backtesting":
-    st.title("🧪 Backtesting Studio")
-    st.caption("Historical simulation using downloaded market candles. Results are only shown when real data is available.")
-    if not st.session_state.saved_strategies:
-        st.info("No saved strategies yet. Create one in Strategy Lab first.")
-    strategy_options = [x["name"] for x in st.session_state.saved_strategies]
-    if not strategy_options:
-        strategy_options = ["EMA Crossover (built-in)"]
-    selected_bt_name = st.selectbox("Strategy to backtest", strategy_options)
-    selected_bt = next((x for x in st.session_state.saved_strategies if x["name"] == selected_bt_name), {"name":"EMA Crossover (built-in)","type":"EMA Crossover","fast":9,"slow":21,"risk_pct":1.0,"rr":2.0})
-    all_assets = {name:cfg for group in MARKET_UNIVERSE.values() for name,cfg in group.items()}
-    b1,b2,b3,b4 = st.columns([1.5,1,1,1])
-    with b1: bt_asset = st.selectbox("Market", list(all_assets.keys()), index=list(all_assets.keys()).index("Bitcoin (BTC/USDT)") if "Bitcoin (BTC/USDT)" in all_assets else 0, key="bt_asset_v2")
-    with b2: bt_tf = st.selectbox("Timeframe", ["5m","15m","30m","1h","4h","1d"], index=1, key="bt_tf_v2")
-    with b3: bt_period = st.selectbox("Historical period", ["1mo","3mo","6mo","1y"], index=1, key="bt_period_v2")
-    with b4: starting_capital = st.number_input("Initial capital", min_value=100.0, value=10000.0, step=500.0, key="bt_capital_v2")
-    commission_pct = st.number_input("Commission per side (%)", min_value=0.0, max_value=1.0, value=0.05, step=0.01, key="bt_commission_v2")
-    if bt_tf in ("5m","15m","30m") and bt_period in ("3mo","6mo","1y"):
-        st.caption("Yahoo Finance often limits intraday history to about 60 days. If it returns less than the selected range, the app will show actual available coverage and will not fabricate candles.")
-    if st.button("▶ Run historical backtest", type="primary", use_container_width=True, key="run_backtest_v2"):
-        cfg = all_assets[bt_asset]
+    st.title("🧪 Backtesting Workspace")
+    st.caption("Historical candle-based strategy test. The backtester refuses to substitute synthetic candles when the data provider has no history.")
+    saved = st.session_state.saved_strategies
+    if saved:
+        names = [x["name"] for x in saved]
+        default_name = st.session_state.selected_saved_strategy if st.session_state.selected_saved_strategy in names else names[0]
+        chosen_name = st.selectbox("Saved strategy", names, index=names.index(default_name), key="bt_saved_strategy")
+        chosen = next(x for x in saved if x["name"] == chosen_name)
+        bt_type, fast_param, slow_param, risk_param, rr_param, stop_pct = chosen["type"], chosen["fast"], chosen["slow"], chosen["risk"], chosen["rr"], chosen["stop_pct"]
+    else:
+        st.info("No saved strategy yet. A built-in EMA Crossover template is available; save your own rules in Strategy Lab to select them here.")
+        bt_type, fast_param, slow_param, risk_param, rr_param, stop_pct = "EMA Crossover", 9, 21, 1.0, 2.0, 0.6
+    assets = list(MARKET_UNIVERSE["🇮🇳 Indian Equities (NSE)"].keys()) + ["Gold (XAU/USD)", "Silver (XAG/USD)", "Bitcoin (BTC/USDT)", "Ethereum (ETH/USDT)"]
+    b1,b2,b3,b4 = st.columns(4)
+    with b1: bt_asset = st.selectbox("Market", assets, index=assets.index("Gold (XAU/USD)"), key="bt_market_new")
+    with b2: bt_tf = st.selectbox("Timeframe", ["5m", "15m", "30m", "1h", "4h", "1D"], index=1, key="bt_tf_new")
+    with b3: bt_period = st.selectbox("History", ["1mo", "3mo", "6mo", "1y"], index=1, key="bt_period_new")
+    with b4: capital = st.number_input("Initial capital", min_value=1000.0, value=100000.0, step=5000.0, key="bt_capital_new")
+    commission = st.number_input("Commission per completed trade ($)", min_value=0.0, value=1.0, step=0.25, key="bt_commission_new")
+    run_bt = st.button("▶ Run historical backtest", type="primary", use_container_width=True, key="bt_run_new")
+    if run_bt:
+        cfg = next((group[bt_asset] for group in MARKET_UNIVERSE.values() if bt_asset in group), None)
+        ticker = cfg["yf"] if cfg else None
         try:
-            # Direct provider request: deliberately do not use load_ohlcv because it has a synthetic fallback.
-            raw = yf.download(cfg["yf"], period=bt_period, interval=bt_tf, progress=False, auto_adjust=False)
-            if raw is not None and isinstance(raw.columns, pd.MultiIndex): raw.columns = [col[0] for col in raw.columns]
-            if raw is None or raw.empty:
-                st.session_state.backtest_result = None
-                st.error("The historical data provider returned no candles. Try another symbol/timeframe or data provider.")
+            if bt_tf in ("5m", "15m", "30m", "1h") and bt_period in ("3mo", "6mo", "1y"):
+                st.warning("Yahoo Finance restricts intraday history for many symbols (often to around 60 days). Requesting available data; the actual returned coverage will be shown.")
+            data = yf.download(ticker, period=bt_period, interval=bt_tf, progress=False, auto_adjust=False) if ticker else pd.DataFrame()
+            if isinstance(data.columns, pd.MultiIndex): data.columns = data.columns.get_level_values(0)
+            data = data.dropna() if data is not None else pd.DataFrame()
+            required = {"Open", "High", "Low", "Close"}
+            if data.empty or not required.issubset(set(data.columns)) or len(data) < max(30, int(slow_param)+5):
+                st.session_state.bt_result_new = None
+                st.error("The provider did not return enough real OHLC candles for this selection. No synthetic data was used. Try a shorter period, a supported timeframe, or another market.")
             else:
-                data = raw[["Open","High","Low","Close"]].apply(pd.to_numeric, errors="coerce").dropna().copy()
-                if len(data) < max(30, int(selected_bt.get("slow",21))+3):
-                    st.session_state.backtest_result = None
-                    st.error(f"Only {len(data)} valid candles were returned; not enough to test this strategy reliably.")
+                d = data.copy()
+                close = d["Close"].astype(float)
+                if bt_type in ("EMA Crossover", "MACD Crossover"):
+                    d["Fast"] = close.ewm(span=max(2,int(fast_param)), adjust=False).mean()
+                    d["Slow"] = close.ewm(span=max(3,int(slow_param)), adjust=False).mean()
+                    long_sig = (d["Fast"] > d["Slow"]) & (d["Fast"].shift(1) <= d["Slow"].shift(1))
+                    short_sig = (d["Fast"] < d["Slow"]) & (d["Fast"].shift(1) >= d["Slow"].shift(1))
+                elif bt_type == "RSI Reversal":
+                    delta=close.diff(); gain=delta.clip(lower=0).rolling(14).mean(); loss=(-delta.clip(upper=0)).rolling(14).mean(); rsi=100-100/(1+gain/(loss+1e-9)); d["RSI"]=rsi
+                    long_sig=(rsi.shift(1)<30)&(rsi>=30); short_sig=(rsi.shift(1)>70)&(rsi<=70)
                 else:
-                    close = data["Close"]
-                    typ = selected_bt.get("type","EMA Crossover")
-                    fast_n, slow_n = int(selected_bt.get("fast",9)), int(selected_bt.get("slow",21))
-                    if typ == "RSI Reversal":
-                        delta=close.diff(); gain=delta.clip(lower=0).ewm(alpha=1/fast_n, adjust=False).mean(); loss=(-delta.clip(upper=0)).ewm(alpha=1/fast_n, adjust=False).mean(); rsi=100-(100/(1+gain/(loss+1e-12)))
-                        long_cond=(rsi.shift(1)<30)&(rsi>=30); short_cond=(rsi.shift(1)>70)&(rsi<=70); data["Indicator"] = rsi; indicator_name="RSI"
-                    elif typ == "Bollinger Breakout":
-                        mid=close.rolling(fast_n).mean(); sd=close.rolling(fast_n).std(); upper=mid+2*sd; lower=mid-2*sd
-                        long_cond=(close>upper)&(close.shift(1)<=upper.shift(1)); short_cond=(close<lower)&(close.shift(1)>=lower.shift(1)); data["Indicator"] = mid; indicator_name="BB Middle"
-                    elif typ == "MACD Crossover":
-                        macd=close.ewm(span=fast_n,adjust=False).mean()-close.ewm(span=slow_n,adjust=False).mean(); sig=macd.ewm(span=9,adjust=False).mean()
-                        long_cond=(macd>sig)&(macd.shift(1)<=sig.shift(1)); short_cond=(macd<sig)&(macd.shift(1)>=sig.shift(1)); data["Indicator"] = macd; indicator_name="MACD"
+                    mid=close.rolling(20).mean(); sd=close.rolling(20).std(); upper=mid+2*sd; lower=mid-2*sd
+                    long_sig=(close>upper)&(close.shift(1)<=upper.shift(1)); short_sig=(close<lower)&(close.shift(1)>=lower.shift(1))
+                d["Long"] = long_sig.fillna(False); d["Short"] = short_sig.fillna(False)
+                balance=float(capital); equity=[]; trades=[]; pos=None; risk_cash=float(capital)*float(risk_param)/100.0
+                for ts,row in d.iterrows():
+                    px=float(row["Close"]); exit_px=None; reason=None
+                    if pos is None:
+                        if bool(row["Long"]): pos={"side":"LONG","entry":px,"time":ts,"sl":px*(1-stop_pct/100),"tp":px*(1+stop_pct/100*rr_param)}
+                        elif bool(row["Short"]): pos={"side":"SHORT","entry":px,"time":ts,"sl":px*(1+stop_pct/100),"tp":px*(1-stop_pct/100*rr_param)}
                     else:
-                        fast=close.ewm(span=fast_n,adjust=False).mean(); slow=close.ewm(span=slow_n,adjust=False).mean()
-                        long_cond=(fast>slow)&(fast.shift(1)<=slow.shift(1)); short_cond=(fast<slow)&(fast.shift(1)>=slow.shift(1)); data["EMA Fast"]=fast; data["EMA Slow"]=slow; indicator_name="EMA"
-                    # Signal evaluated on candle close, entry at next candle open to avoid look-ahead.
-                    data["long_signal"] = long_cond.fillna(False); data["short_signal"] = short_cond.fillna(False)
-                    trades=[]; equity_values=[]; balance=float(starting_capital); position=None; peak=balance; max_dd=0.0
-                    for i in range(1,len(data)):
-                        row=data.iloc[i]; prev=data.iloc[i-1]; ts=data.index[i]
-                        if position is not None:
-                            should_exit = bool(row["short_signal"] if position["side"]=="LONG" else row["long_signal"])
-                            if should_exit:
-                                exit_price=float(row["Open"]); gross=(exit_price-position["entry"])*(1 if position["side"]=="LONG" else -1)*position["qty"]
-                                fees=(position["entry"]+exit_price)*position["qty"]*commission_pct/100
-                                pnl=gross-fees; balance+=pnl
-                                trades.append({"Side":position["side"],"Entry time":position["time"],"Entry price":position["entry"],"Exit time":ts,"Exit price":exit_price,"Quantity":position["qty"],"P/L":pnl,"Exit reason":"Opposite signal / next open"})
-                                position=None
-                        if position is None and (bool(prev["long_signal"]) or bool(prev["short_signal"])):
-                            side="LONG" if bool(prev["long_signal"]) else "SHORT"; entry=float(row["Open"])
-                            qty=(balance*float(selected_bt.get("risk_pct",1.0))/100)/(entry*0.01) if entry>0 else 0
-                            qty=max(qty,0.0); position={"side":side,"time":ts,"entry":entry,"qty":qty}
-                            fees=entry*qty*commission_pct/100; balance-=fees
-                        equity_values.append((ts,balance)); peak=max(peak,balance); max_dd=max(max_dd,(peak-balance)/peak*100 if peak else 0)
-                    if position is not None:
-                        ts=data.index[-1]; exit_price=float(data["Close"].iloc[-1]); gross=(exit_price-position["entry"])*(1 if position["side"]=="LONG" else -1)*position["qty"]; fees=exit_price*position["qty"]*commission_pct/100; pnl=gross-fees; balance+=pnl
-                        trades.append({"Side":position["side"],"Entry time":position["time"],"Entry price":position["entry"],"Exit time":ts,"Exit price":exit_price,"Quantity":position["qty"],"P/L":pnl,"Exit reason":"End of historical data"})
-                    trade_df=pd.DataFrame(trades); win_rate=float((trade_df["P/L"]>0).mean()*100) if not trade_df.empty else 0.0
-                    eq=pd.Series([starting_capital]+[v for _,v in equity_values], index=[data.index[0]]+[t for t,_ in equity_values]); dd=((eq/eq.cummax())-1).min()*-100
-                    fig=go.Figure(); fig.add_trace(go.Candlestick(x=data.index,open=data.Open,high=data.High,low=data.Low,close=data.Close,name="Price"))
-                    if "EMA Fast" in data: fig.add_trace(go.Scatter(x=data.index,y=data["EMA Fast"],name=f"EMA {fast_n}",line=dict(width=1.3)))
-                    if "EMA Slow" in data: fig.add_trace(go.Scatter(x=data.index,y=data["EMA Slow"],name=f"EMA {slow_n}",line=dict(width=1.3)))
-                    if not trade_df.empty:
-                        buys=trade_df[trade_df.Side=="LONG"]; sells=trade_df[trade_df.Side=="SHORT"]
-                        fig.add_trace(go.Scatter(x=buys["Entry time"],y=buys["Entry price"],mode="markers",name="LONG entry",marker=dict(symbol="triangle-up",size=11,color="#22c55e")))
-                        fig.add_trace(go.Scatter(x=sells["Entry time"],y=sells["Entry price"],mode="markers",name="SHORT entry",marker=dict(symbol="triangle-down",size=11,color="#ef4444")))
-                        exits=pd.concat([trade_df[["Exit time","Exit price"]].rename(columns={"Exit time":"time","Exit price":"price"})],ignore_index=True)
-                        fig.add_trace(go.Scatter(x=exits.time,y=exits.price,mode="markers",name="Exit",marker=dict(symbol="x",size=9,color="#fbbf24")))
-                    fig.update_layout(template="plotly_dark",title=f"{bt_asset} · {selected_bt_name} · {bt_tf}",height=560,xaxis_rangeslider_visible=False,margin=dict(l=10,r=10,t=45,b=10))
-                    st.plotly_chart(fig,use_container_width=True)
-                    m1,m2,m3,m4,m5=st.columns(5); m1.metric("Net P/L",f"{balance-starting_capital:,.2f}"); m2.metric("Win rate",f"{win_rate:.1f}%"); m3.metric("Total trades",str(len(trade_df))); m4.metric("Max drawdown",f"{dd:.2f}%"); m5.metric("Ending equity",f"{balance:,.2f}")
-                    eqfig=go.Figure(go.Scatter(x=eq.index,y=eq.values,mode="lines",name="Equity",line=dict(color="#22c55e",width=2))); eqfig.update_layout(template="plotly_dark",title="Equity Curve",height=300,margin=dict(l=10,r=10,t=40,b=10)); st.plotly_chart(eqfig,use_container_width=True)
-                    st.markdown("#### Trade details")
-                    st.dataframe(trade_df,use_container_width=True,hide_index=True) if not trade_df.empty else st.info("No completed trades were generated by this strategy in the selected period.")
-                    st.caption(f"Provider: Yahoo Finance · {len(data):,} candles · actual coverage: {data.index[0]} to {data.index[-1]}. Commission assumption: {commission_pct:.3f}% per side. This is a simplified simulation, not a broker fill model.")
+                        if pos["side"]=="LONG":
+                            if float(row["Low"])<=pos["sl"]: exit_px,reason=pos["sl"],"Stop loss"
+                            elif float(row["High"])>=pos["tp"]: exit_px,reason=pos["tp"],"Take profit"
+                            elif bool(row["Short"]): exit_px,reason=px,"Opposite signal"
+                        else:
+                            if float(row["High"])>=pos["sl"]: exit_px,reason=pos["sl"],"Stop loss"
+                            elif float(row["Low"])<=pos["tp"]: exit_px,reason=pos["tp"],"Take profit"
+                            elif bool(row["Long"]): exit_px,reason=px,"Opposite signal"
+                        if exit_px is not None:
+                            move=(exit_px-pos["entry"])/pos["entry"]*(1 if pos["side"]=="LONG" else -1)
+                            pnl=risk_cash*(move/(stop_pct/100))-float(commission); balance+=pnl
+                            trades.append({"Entry Time":pos["time"],"Exit Time":ts,"Side":pos["side"],"Entry":pos["entry"],"Exit":exit_px,"P&L":pnl,"Return %":move*100,"Exit Reason":reason})
+                            pos=None
+                    mark=balance
+                    if pos is not None:
+                        move=(px-pos["entry"])/pos["entry"]*(1 if pos["side"]=="LONG" else -1); mark+=risk_cash*(move/(stop_pct/100))
+                    equity.append((ts,mark))
+                eq=pd.Series(dict(equity)).sort_index(); trade_df=pd.DataFrame(trades); wins=int((trade_df["P&L"]>0).sum()) if not trade_df.empty else 0; winrate=100*wins/len(trade_df) if len(trade_df) else 0.0; dd=(eq/eq.cummax()-1)*100 if not eq.empty else pd.Series(dtype=float)
+                fig=go.Figure(); fig.add_trace(go.Candlestick(x=d.index,open=d["Open"],high=d["High"],low=d["Low"],close=d["Close"],name="OHLC"))
+                if "Fast" in d: fig.add_trace(go.Scatter(x=d.index,y=d["Fast"],name=f"Fast {fast_param}",line=dict(width=1.3))); fig.add_trace(go.Scatter(x=d.index,y=d["Slow"],name=f"Slow {slow_param}",line=dict(width=1.3)))
+                longs=d[d["Long"]]; shorts=d[d["Short"]]; fig.add_trace(go.Scatter(x=longs.index,y=longs["Low"],mode="markers",name="LONG",marker=dict(symbol="triangle-up",size=10,color="#28d17c"))); fig.add_trace(go.Scatter(x=shorts.index,y=shorts["High"],mode="markers",name="SHORT",marker=dict(symbol="triangle-down",size=10,color="#ff5c69")))
+                fig.update_layout(template="plotly_dark",height=540,title=f"{bt_asset} · {bt_tf} · {bt_type}",xaxis_rangeslider_visible=False,paper_bgcolor="#0b0e14",plot_bgcolor="#0b0e14")
+                st.session_state.bt_result_new={"data":d,"fig":fig,"equity":eq,"trades":trade_df,"capital":capital,"net":balance-capital,"winrate":winrate,"mdd":abs(float(dd.min())) if not dd.empty else 0.0,"period":bt_period,"timeframe":bt_tf}
         except Exception as exc:
-            st.session_state.backtest_result = None
-            st.error(f"Backtest failed: {exc}")
+            st.session_state.bt_result_new = None
+            st.error(f"Historical backtest failed: {exc}")
+    result=st.session_state.get("bt_result_new")
+    if result:
+        st.caption(f"Source: Yahoo Finance · returned candles: {len(result['data']):,} · coverage: {result['data'].index.min()} to {result['data'].index.max()} · commission: ${commission:.2f} per completed trade. Intrabar stop/target ordering is simplified.")
+        st.plotly_chart(result["fig"],use_container_width=True)
+        m=st.columns(5); m[0].metric("Net P/L",f"${result['net']:,.2f}"); m[1].metric("Win rate",f"{result['winrate']:.1f}%"); m[2].metric("Max drawdown",f"{result['mdd']:.2f}%"); m[3].metric("Closed trades",str(len(result["trades"]))); m[4].metric("Ending equity",f"${result['capital']+result['net']:,.2f}")
+        eqfig=go.Figure(go.Scatter(x=result["equity"].index,y=result["equity"].values,mode="lines",name="Equity")); eqfig.update_layout(template="plotly_dark",height=300,title="Equity curve",paper_bgcolor="#0b0e14",plot_bgcolor="#0b0e14"); st.plotly_chart(eqfig,use_container_width=True)
+        if not result["trades"].empty: st.dataframe(result["trades"],use_container_width=True,hide_index=True)
+        else: st.info("No closed trades were generated in this data window.")
 
 # ==========================================
 # 🤖 VIEW 6: EA / EXPERT ADVISORS
@@ -1388,6 +2338,15 @@ elif st.session_state.active_tab == "🤖 EA / Expert Advisors":
             ea_risk = st.slider("Risk per Trade %", 0.25, 5.0, 1.0, 0.25)
             ea_max_lots = st.number_input("Max Lots", min_value=0.01, max_value=100.0, value=1.0, step=0.01)
 
+        st.markdown("#### 🛡 Risk & Trade Management")
+        rm1, rm2, rm3 = st.columns(3)
+        with rm1:
+            ea_trailing = st.number_input("Trailing Stop %", 0.0, 10.0, 0.0, 0.05)
+        with rm2:
+            ea_breakeven = st.number_input("Breakeven Trigger (R)", 0.0, 5.0, 1.0, 0.25)
+        with rm3:
+            ea_max_trades = st.number_input("Max Trades / Day", 1, 100, 5, 1)
+
         st.markdown("#### Execution Parameters")
         x1, x2, x3 = st.columns(3)
         with x1:
@@ -1415,6 +2374,9 @@ elif st.session_state.active_tab == "🤖 EA / Expert Advisors":
                 "take_profit_pct": ea_tp,
                 "risk_pct": ea_risk,
                 "max_lots": ea_max_lots,
+                "trailing_stop_pct": ea_trailing,
+                "breakeven_r": ea_breakeven,
+                "max_trades_day": ea_max_trades,
                 "timeframe": ea_tf,
                 "session": ea_session,
                 "mode": ea_mode,
@@ -1445,26 +2407,27 @@ elif st.session_state.active_tab == "🤖 EA / Expert Advisors":
             st.info("No custom EAs saved yet. Build one in the EA Builder.")
 
     with ea_tab3:
-        deploy_asset = st.selectbox("Deploy to Asset", list(MARKET_UNIVERSE["🇮🇳 Indian Equities (NSE)"].keys()) + ["Gold (XAU/USD)", "EUR/USD", "Bitcoin (BTC/USDT)"], key="deploy_asset")
-        deploy_ea = st.selectbox(
-            "EA",
-            ["None"] + [x["name"] for x in st.session_state.saved_eas] + [x["name"] for x in EA_TEMPLATES],
-            key="deploy_ea",
-        )
-        d1, d2 = st.columns(2)
+        deploy_assets = st.multiselect("Deploy to Assets", list(MARKET_UNIVERSE["🇮🇳 Indian Equities (NSE)"].keys()) + ["Gold (XAU/USD)","EUR/USD","Bitcoin (BTC/USDT)"], default=[])
+        deploy_ea = st.selectbox("EA", ["None"] + [x["name"] for x in st.session_state.saved_eas] + [x["name"] for x in EA_TEMPLATES], key="deploy_ea")
+        d1,d2,d3=st.columns(3)
         with d1:
-            if st.button("📥 Load on Chart", use_container_width=True, key="deploy_load"):
-                st.session_state.active_ea = None if deploy_ea == "None" else deploy_ea
-                st.session_state.ea_enabled = False
-                st.success(f"{deploy_ea} loaded for {deploy_asset}.")
+            deploy_mode=st.selectbox("Deployment Mode",["Paper / Demo","Signal Only","Live (manual approval)"],key="deploy_mode")
         with d2:
-            if st.button("▶ Enable / Trigger", use_container_width=True, key="deploy_trigger"):
-                if deploy_ea != "None":
-                    st.session_state.active_ea = deploy_ea
-                    st.session_state.ea_enabled = True
-                    st.success(f"{deploy_ea} enabled for {deploy_asset}.")
-                else:
-                    st.warning("Select an EA first.")
+            deploy_risk=st.slider("Deployment Risk %",0.25,5.0,1.0,0.25,key="deploy_risk")
+        with d3:
+            deploy_enabled=st.toggle("Enable After Load",value=False,key="deploy_enabled")
+        if st.button("🚀 Deploy EA",use_container_width=True,key="deploy_ea_now"):
+            if deploy_ea=="None" or not deploy_assets:
+                st.warning("Select an EA and at least one asset.")
+            else:
+                for asset in deploy_assets:
+                    st.session_state.ea_deployments[asset]={"EA":deploy_ea,"Mode":deploy_mode,"Risk %":deploy_risk,"Enabled":deploy_enabled}
+                st.session_state.active_ea=deploy_ea
+                st.session_state.ea_enabled=deploy_enabled
+                st.success(f"{deploy_ea} configured for {len(deploy_assets)} asset(s).")
+        if st.session_state.ea_deployments:
+            st.markdown("##### Active Deployments")
+            st.dataframe(pd.DataFrame.from_dict(st.session_state.ea_deployments,orient="index").reset_index().rename(columns={"index":"Asset"}),use_container_width=True,hide_index=True)
 
     st.divider()
     st.markdown("#### 📋 Current Deployment")
@@ -1474,22 +2437,142 @@ elif st.session_state.active_tab == "🤖 EA / Expert Advisors":
     })
 
 
+
 # ==========================================
-# 📅 VIEW 7: ECONOMIC CALENDAR
+# 🏦 VIEW 7: PROP-FIRM CENTER
 # ==========================================
-elif st.session_state.active_tab == "📰 News Trading":
+elif st.session_state.active_tab == "🏦 Prop-Firm Center":
+    st.title("🏦 Prop-Firm Risk Center")
+    st.caption("Configure account rules, monitor drawdown, and gate signals before execution.")
+
+    top1, top2, top3 = st.columns([1.3, 1.3, 1])
+    with top1:
+        st.session_state.prop_account_type = st.selectbox(
+            "Account Type",
+            ["Personal / Demo", "Prop-Firm", "Evaluation", "Funded Account"],
+            index=["Personal / Demo", "Prop-Firm", "Evaluation", "Funded Account"].index(st.session_state.prop_account_type),
+        )
+    with top2:
+        st.session_state.prop_firm_name = st.text_input("Profile / Firm Name", st.session_state.prop_firm_name)
+    with top3:
+        st.session_state.prop_account_size = st.number_input(
+            "Account Size", min_value=1000.0, value=float(st.session_state.prop_account_size), step=1000.0
+        )
+
+    st.markdown("### 📐 Rule Profile")
+    r1, r2, r3, r4 = st.columns(4)
+    with r1:
+        st.session_state.prop_profit_target_pct = st.number_input(
+            "Profit Target %", 0.0, 100.0, float(st.session_state.prop_profit_target_pct), 0.25
+        )
+    with r2:
+        st.session_state.prop_daily_loss_limit_pct = st.number_input(
+            "Daily Loss Limit %", 0.1, 50.0, float(st.session_state.prop_daily_loss_limit_pct), 0.25
+        )
+    with r3:
+        st.session_state.prop_max_drawdown_pct = st.number_input(
+            "Maximum Drawdown %", 0.1, 50.0, float(st.session_state.prop_max_drawdown_pct), 0.25
+        )
+    with r4:
+        st.session_state.prop_max_trade_risk_pct = st.number_input(
+            "Max Risk / Trade %", 0.05, 10.0, float(st.session_state.prop_max_trade_risk_pct), 0.05
+        )
+
+    r5, r6, r7 = st.columns(3)
+    with r5:
+        st.session_state.prop_min_trading_days = st.number_input(
+            "Minimum Trading Days", 0, 100, int(st.session_state.prop_min_trading_days)
+        )
+    with r6:
+        st.session_state.prop_news_trading = st.selectbox("News Trading", ["Allowed", "Restricted"], index=["Allowed", "Restricted"].index(st.session_state.prop_news_trading))
+    with r7:
+        st.session_state.prop_ea_trading = st.selectbox("EA Trading", ["Allowed", "Restricted"], index=["Allowed", "Restricted"].index(st.session_state.prop_ea_trading))
+
+    st.divider()
+    st.markdown("### 🛡️ Live Account Health")
+    h1, h2, h3, h4 = st.columns(4)
+    equity = prop_equity()
+    peak = max(st.session_state.prop_peak_equity, equity)
+    st.session_state.prop_peak_equity = peak
+    profit_pct = (equity - st.session_state.prop_account_size) / max(st.session_state.prop_account_size, 1) * 100
+    h1.metric("Equity", f"${equity:,.2f}")
+    h2.metric("Profit / Loss", f"{profit_pct:+.2f}%")
+    h3.metric("Daily Loss", f"{prop_daily_loss_pct():.2f}%")
+    h4.metric("Drawdown", f"{prop_drawdown_pct():.2f}%")
+
+    daily_remaining = max(0.0, st.session_state.prop_daily_loss_limit_pct - prop_daily_loss_pct())
+    dd_remaining = max(0.0, st.session_state.prop_max_drawdown_pct - prop_drawdown_pct())
+    st.progress(min(prop_daily_loss_pct() / max(st.session_state.prop_daily_loss_limit_pct, 0.01), 1.0), text=f"Daily-loss usage · {prop_daily_loss_pct():.2f}% / {st.session_state.prop_daily_loss_limit_pct:.2f}%")
+    st.progress(min(prop_drawdown_pct() / max(st.session_state.prop_max_drawdown_pct, 0.01), 1.0), text=f"Drawdown usage · {prop_drawdown_pct():.2f}% / {st.session_state.prop_max_drawdown_pct:.2f}%")
+
+    st.info(
+        f"Remaining daily-loss buffer: {daily_remaining:.2f}% · "
+        f"Remaining drawdown buffer: {dd_remaining:.2f}%"
+    )
+
+    st.markdown("### 🟢 Signal Gate")
+    if global_df is not None and len(global_df) >= 25:
+        psig = make_signal_snapshot(global_price, global_df, "Gold (XAU/USD)")
+        if psig:
+            approved, reason = prop_risk_status(float(st.session_state.prop_max_trade_risk_pct))
+            status = "APPROVED" if approved else "BLOCKED"
+            st.markdown(f"#### {'🟢' if approved else '🔴'} {status}")
+            s1, s2, s3, s4 = st.columns(4)
+            s1.metric("Entry", f"{psig['entry']:.2f}")
+            s2.metric("SL", f"{psig['sl']:.2f}")
+            s3.metric("TP1", f"{psig['tp1']:.2f}")
+            s4.metric("TP2", f"{psig['tp2']:.2f}")
+            st.write(f"**Reason:** {reason}")
+            if approved and st.button("📡 Send Signal Alert", key="prop_send_signal"):
+                append_notification(
+                    f"{psig['asset']} {psig['side']} signal",
+                    build_signal_message(psig),
+                    "SIGNAL",
+                )
+                st.success("Signal queued in the notification center.")
+    else:
+        st.warning("Market data is not ready for a signal gate yet.")
+
+    st.divider()
+    st.markdown("### 🔔 Notification Center")
+    if st.session_state.notification_log:
+        st.dataframe(pd.DataFrame(st.session_state.notification_log), use_container_width=True, hide_index=True)
+    else:
+        st.caption("No alerts yet.")
+
+    st.markdown("### 🌙 Background Monitoring")
+    st.write(
+        "The Streamlit page can display alerts, but monitoring after the browser/app is closed "
+        "requires the included persistent monitor service."
+    )
+    if st.button("💾 Write Monitor Configuration", key="prop_write_cfg"):
+        cfg_path = save_monitor_config()
+        st.success(f"Configuration saved: {cfg_path}")
+        st.caption("Start prop_ai_monitor_service.py separately on a machine/server that remains online.")
+
+
+# ==========================================
+# 📅 VIEW 8: ECONOMIC CALENDAR
+# ==========================================
+elif st.session_state.active_tab in ("📰 News Trading", "📅 Economic Calendar"):
     st.title("📰 News Trading & Economic Calendar")
-    st.caption("Plan around scheduled releases. Event data must come from a configured, verified calendar provider.")
-
-    st.info("No verified economic-calendar feed is configured in this app yet. To avoid misleading you, this workspace does not display fabricated event times or release values.")
-    st.markdown("**Planned capabilities**")
-    st.markdown("- Verified upcoming events with source timestamps and IST conversion\n- High / medium / low impact and currency filters\n- Previous, forecast and actual values when published by the provider\n- Pre-release alerts and configurable no-trade windows\n- Historical news-window analysis when timestamped event data is available")
-    st.caption("A provider/API connection is required for live calendar entries and reliable alerts. Existing market chart data alone cannot verify future economic release times.")
-
+    st.caption("News-aware planning with local release-time handling. This workspace does not invent calendar events.")
+    st.info("No verified economic-calendar API is configured in this app, so live events, release times, actual/forecast values, and alerts cannot be shown reliably yet. Connect a trusted calendar provider before using this for time-sensitive trading.")
+    st.markdown("#### News timing controls")
+    tz = st.selectbox("Display timezone", ["Asia/Kolkata (IST)", "UTC", "America/New_York", "Europe/London"], index=0, key="news_timezone")
+    currencies = st.multiselect("Currencies to watch", ["USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD"], default=["USD", "EUR"], key="news_currencies")
+    impacts = st.multiselect("Impact levels", ["High", "Medium", "Low"], default=["High"], key="news_impacts")
+    lead = st.slider("Pre-release caution window (minutes)", 5, 120, 30, 5, key="news_lead")
+    st.markdown("#### News-aware strategy checklist")
+    st.write(f"• Watch currencies: {', '.join(currencies) if currencies else 'none selected'}")
+    st.write(f"• Impact filter: {', '.join(impacts) if impacts else 'none selected'}")
+    st.write(f"• Planned caution window: {lead} minutes before a verified release")
+    st.write("• Suggested safeguard: block new entries before high-impact releases and resume only after spreads/volatility normalize.")
+    st.caption("No countdown or push alert is active until a real calendar feed and background scheduler are configured. News-based strategy rules must be backtested against timestamped event data.")
 
 
 # ==========================================
-# ⚙️ VIEW 8: SETTINGS
+# ⚙️ VIEW 9: SETTINGS
 # ==========================================
 elif st.session_state.active_tab == "⚙️ Settings":
     st.title("⚙️ Smart Session Anomaly Detector | Settings")
@@ -1497,3 +2580,6 @@ elif st.session_state.active_tab == "⚙️ Settings":
     st.write("Architecture: Python Quant Pipeline + Isolation Forest ML")
     st.write("Data Stream Latency: 20 Seconds Auto-Sync")
     st.selectbox("Base Currency", ["USD ($)", "INR (₹)", "EUR (€)"])
+    st.divider()
+    st.markdown("#### 🧩 Platform Modules")
+    st.write({"Chart Analysis": "Technical chart + direct execution", "EA Engine": "Builder / Library / Deployment", "Backtesting": "Historical simulation + metrics", "Broker Bridge": st.session_state.broker_name, "Default Execution": st.session_state.broker_api_mode})
