@@ -1675,33 +1675,19 @@ if st.session_state.active_tab == '📊 Dashboard':
 elif st.session_state.active_tab == "📈 Chart Analysis":
     st.title("📈 Smart Session Anomaly Detector | Charts")
 
-    col_s1, col_s2, col_s3 = st.columns([1.5, 1.5, 1])
-    with col_s1:
-        cat_select = st.selectbox("Market Sector", list(MARKET_UNIVERSE.keys()))
-    with col_s2:
-        inst_select = st.selectbox(
-            "Trading Instrument", list(MARKET_UNIVERSE[cat_select].keys())
-        )
+    # Compact trading-terminal layout: market selector on the left, chart centre, execution on the right.
+    market_col, chart_col, order_col = st.columns([0.85, 2.7, 1.05], gap="small")
+    with market_col:
+        st.markdown("#### Markets")
+        cat_select = st.selectbox("Market category", list(MARKET_UNIVERSE.keys()), key="chart_market_category")
+        inst_select = st.selectbox("Instrument", list(MARKET_UNIVERSE[cat_select].keys()), key="chart_market_instrument")
         inst_cfg = MARKET_UNIVERSE[cat_select][inst_select]
-    with col_s3:
-        chart_res = st.selectbox("Interval", ["5m", "15m", "1h", "1D"], index=1)
+        chart_res = st.selectbox("Timeframe", ["5m", "15m", "1h", "1D"], index=1, key="chart_market_interval")
+        st.caption("Choose an instrument to load its chart.")
 
-    tab_tv, tab_quant = st.tabs(
-        ["📺 Live TradingView Viewport", "🔬 ML Anomaly Engine"]
-    )
-
-    with tab_tv:
-        tv_interval_val = (
-            "D"
-            if chart_res == "1D"
-            else (
-                "60"
-                if chart_res == "1h"
-                else ("15" if chart_res == "15m" else "5")
-            )
-        )
+    with chart_col:
+        tv_interval_val = "D" if chart_res == "1D" else ("60" if chart_res == "1h" else ("15" if chart_res == "15m" else "5"))
         tv_symbol = f"{inst_cfg['exchange']}:{inst_cfg['symbol']}"
-
         tv_widget_html = f"""
         <style>html, body {{ height: 100%; margin: 0; padding: 0; }}</style>
         <div class="tradingview-widget-container" style="height:100%;width:100%;">
@@ -1709,125 +1695,74 @@ elif st.session_state.active_tab == "📈 Chart Analysis":
           <script src="https://s3.tradingview.com/tv.js"></script>
           <script>
           new TradingView.widget({{
-            "autosize": true,
-            "symbol": "{tv_symbol}",
-            "interval": "{tv_interval_val}",
-            "timezone": "Asia/Kolkata",
-            "theme": "dark",
-            "style": "1",
-            "locale": "en",
-            "toolbar_bg": "#0b0e14",
-            "enable_publishing": false,
-            "hide_top_toolbar": false,
+            "autosize": true, "symbol": "{tv_symbol}", "interval": "{tv_interval_val}",
+            "timezone": "Asia/Kolkata", "theme": "dark", "style": "1", "locale": "en",
+            "toolbar_bg": "#0b0e14", "enable_publishing": false, "hide_top_toolbar": false,
             "container_id": "tv_chart"
           }});
           </script>
         </div>
         """
-        components.html(tv_widget_html, height=780)
+        components.html(tv_widget_html, height=500)
+        st.caption("TradingView chart • use the toolbar to change indicators and drawing tools.")
 
-
-        # --- PROFESSIONAL TECHNICAL CHART ---
-        st.markdown("### 📊 Technical Chart & Signal Workspace")
-        chart_df = load_ohlcv(inst_cfg["yf"], period="1mo", interval=chart_res)
-        if chart_df is not None and len(chart_df) >= 30:
-            ind_fast, ind_slow = st.columns(2)
-            with ind_fast:
-                tech_fast = st.number_input("Fast EMA", 2, 100, 9, key="tech_fast")
-            with ind_slow:
-                tech_slow = st.number_input("Slow EMA", 3, 200, 21, key="tech_slow")
-            tech_df = add_indicators(chart_df, tech_fast, tech_slow)
-            fig_tech = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.04, row_heights=[0.78,0.22])
-            fig_tech.add_trace(go.Candlestick(x=tech_df.index, open=tech_df["Open"], high=tech_df["High"], low=tech_df["Low"], close=tech_df["Close"], name="Price"), row=1,col=1)
-            fig_tech.add_trace(go.Scatter(x=tech_df.index,y=tech_df["EMA Fast"],name=f"EMA {tech_fast}",mode="lines"),row=1,col=1)
-            fig_tech.add_trace(go.Scatter(x=tech_df.index,y=tech_df["EMA Slow"],name=f"EMA {tech_slow}",mode="lines"),row=1,col=1)
-            fig_tech.add_trace(go.Scatter(x=tech_df.index,y=tech_df["BB Upper"],name="BB Upper",mode="lines",line=dict(dash="dot")),row=1,col=1)
-            fig_tech.add_trace(go.Scatter(x=tech_df.index,y=tech_df["BB Lower"],name="BB Lower",mode="lines",line=dict(dash="dot")),row=1,col=1)
-            longs=tech_df[tech_df["Long Signal"]]; shorts=tech_df[tech_df["Short Signal"]]
-            if not longs.empty: fig_tech.add_trace(go.Scatter(x=longs.index,y=longs["Low"]*0.998,mode="markers",name="LONG",marker=dict(symbol="triangle-up",size=11)),row=1,col=1)
-            if not shorts.empty: fig_tech.add_trace(go.Scatter(x=shorts.index,y=shorts["High"]*1.002,mode="markers",name="SHORT",marker=dict(symbol="triangle-down",size=11)),row=1,col=1)
-            fig_tech.add_trace(go.Bar(x=tech_df.index,y=tech_df["Volume"],name="Volume"),row=2,col=1)
-            fig_tech.update_layout(template="plotly_dark",height=620,xaxis_rangeslider_visible=False,margin=dict(l=10,r=10,t=20,b=10),paper_bgcolor="#0b0e14",plot_bgcolor="#0b0e14")
-            st.plotly_chart(fig_tech,use_container_width=True,config={"scrollZoom":True,"displaylogo":False})
-            latest=tech_df.iloc[-1]
-            s1,s2,s3,s4=st.columns(4)
-            s1.metric("Last Price",f"{latest['Close']:,.2f}")
-            s2.metric("RSI",f"{latest['RSI']:.1f}")
-            s3.metric("EMA Trend","BULLISH" if latest['EMA Fast']>latest['EMA Slow'] else "BEARISH")
-            s4.metric("Volume vs MA",f"{latest['Volume']/max(latest['Volume MA'],1):.2f}x")
+    with order_col:
+        st.markdown("#### Trade execution")
+        chart_trade_price = float(global_price)
+        try:
+            latest_trade_df = load_ohlcv(inst_cfg["yf"], period="1mo", interval=chart_res)
+            if latest_trade_df is not None and len(latest_trade_df):
+                chart_trade_price = float(latest_trade_df["Close"].iloc[-1])
+        except Exception:
+            pass
+        st.metric("Reference price", f"{chart_trade_price:,.4f}")
+        order_side = st.radio("Direction", ["BUY / LONG", "SELL / SHORT"], horizontal=False, key="chart_order_side")
+        chart_lots = st.number_input("Lots / quantity", min_value=0.01, max_value=100.0, value=0.05, step=0.01, key="chart_trade_lots")
+        use_sltp = st.toggle("Set TP / SL", value=False, key="chart_use_sltp")
+        if use_sltp:
+            sl_col, tp_col = st.columns(2)
+            with sl_col:
+                chart_sl = st.number_input("Stop loss", min_value=0.0, value=0.0, step=0.1, key="chart_trade_sl")
+            with tp_col:
+                chart_tp = st.number_input("Take profit", min_value=0.0, value=0.0, step=0.1, key="chart_trade_tp")
         else:
-            st.info("Technical chart data is still syncing.")
+            chart_sl, chart_tp = 0.0, 0.0
+        st.caption("Confirm broker connection and order mode before live execution.")
+        if st.button("Place Order", type="primary", use_container_width=True, key="chart_place_order"):
+            side = "BUY" if order_side == "BUY / LONG" else "SELL"
+            place_chart_trade(side, chart_lots, inst_select, chart_trade_price)
+            st.success(f"{side} order submitted for {inst_select} at {chart_trade_price:,.4f}.")
+        st.caption("TP/SL inputs are captured in this panel; broker-side attachment depends on your configured gateway.")
 
-        # --- DIRECT TRADE EXECUTION ON ACTIVE CHART ---
-        chart_trade_price = float(chart_df["Close"].iloc[-1]) if chart_df is not None and len(chart_df) else float(global_price)
-        st.markdown("### ⚡ Direct Trade Execution")
-        trade_col1, trade_col2, trade_col3 = st.columns([1, 1, 2])
-        with trade_col1:
-            chart_lots = st.number_input(
-                "Lot Size",
-                min_value=0.01,
-                max_value=100.0,
-                value=1.0,
-                step=0.01,
-                key="chart_trade_lots",
-            )
-        with trade_col2:
-            st.caption("Active Instrument")
-            st.write(f"**{inst_select}**")
-        with trade_col3:
-            buy_col, sell_col = st.columns(2)
-            if buy_col.button("🟢 BUY / LONG", use_container_width=True, key="chart_buy"):
-                place_chart_trade("BUY", chart_lots, inst_select, chart_trade_price)
-                st.success("BUY order routed from Chart Analysis.")
-            if sell_col.button("🔴 SELL / SHORT", use_container_width=True, key="chart_sell"):
-                place_chart_trade("SELL", chart_lots, inst_select, chart_trade_price)
-                st.success("SELL order routed from Chart Analysis.")
+    tab_tv, tab_quant = st.tabs(["📺 Live TradingView Viewport", "🔬 ML Anomaly Engine"])
+    with tab_tv:
+        st.info("The compact chart and right-side trade execution panel are shown above to keep both visible while analysing.")
 
-        # --- EA EXECUTION PANEL ---
-        st.markdown("### 🤖 Expert Advisor Execution Panel")
-        ea_exec_1, ea_exec_2, ea_exec_3 = st.columns([1.4, 1, 1])
-        with ea_exec_1:
-            ea_choices = ["None"] + [x["name"] for x in EA_TEMPLATES] + [
-                x["name"] for x in st.session_state.saved_eas
-            ]
-            selected_chart_ea = st.selectbox(
-                "EA to load on active chart",
-                ea_choices,
-                key="chart_ea_selector",
-            )
-        with ea_exec_2:
-            if st.button("📥 Load EA", use_container_width=True, key="chart_load_ea"):
-                st.session_state.active_ea = None if selected_chart_ea == "None" else selected_chart_ea
-                st.session_state.ea_enabled = False
-                st.success(
-                    "No EA selected." if selected_chart_ea == "None"
-                    else f"Loaded **{selected_chart_ea}** onto {inst_select}."
-                )
-        with ea_exec_3:
-            enabled = st.toggle(
-                "Enable EA",
-                value=st.session_state.ea_enabled,
-                key="chart_ea_enabled",
-            )
-            st.session_state.ea_enabled = enabled
-
-        if st.session_state.active_ea:
-            st.info(
-                f"Active EA: **{st.session_state.active_ea}** | "
-                f"Status: **{'ENABLED' if st.session_state.ea_enabled else 'DISABLED'}**"
-            )
-            trigger_col, risk_col = st.columns([1, 1])
-            with trigger_col:
-                if st.button("▶ Trigger EA Check", use_container_width=True, key="trigger_chart_ea"):
-                    if st.session_state.ea_enabled:
-                        st.success(
-                            f"EA check triggered on {inst_select}. "
-                            "Review the generated signal before live execution."
-                        )
-                    else:
-                        st.warning("Enable the EA before triggering an automated check.")
-            with risk_col:
-                st.caption("EA execution remains subject to the configured risk and broker connection.")
+    # --- EA EXECUTION PANEL ---
+    st.markdown("### 🤖 Expert Advisor Execution Panel")
+    ea_exec_1, ea_exec_2, ea_exec_3 = st.columns([1.4, 1, 1])
+    with ea_exec_1:
+        ea_choices = ["None"] + [x["name"] for x in EA_TEMPLATES] + [x["name"] for x in st.session_state.saved_eas]
+        selected_chart_ea = st.selectbox("EA to load on active chart", ea_choices, key="chart_ea_selector")
+    with ea_exec_2:
+        if st.button("📥 Load EA", use_container_width=True, key="chart_load_ea"):
+            st.session_state.active_ea = None if selected_chart_ea == "None" else selected_chart_ea
+            st.session_state.ea_enabled = False
+            st.success("No EA selected." if selected_chart_ea == "None" else f"Loaded **{selected_chart_ea}** onto {inst_select}.")
+    with ea_exec_3:
+        enabled = st.toggle("Enable EA", value=st.session_state.ea_enabled, key="chart_ea_enabled")
+        st.session_state.ea_enabled = enabled
+    if st.session_state.active_ea:
+        st.info(f"Active EA: **{st.session_state.active_ea}** | Status: **{'ENABLED' if st.session_state.ea_enabled else 'DISABLED'}**")
+        trigger_col, risk_col = st.columns([1, 2])
+        with trigger_col:
+            if st.button("▶ Trigger EA Check", use_container_width=True, key="trigger_chart_ea"):
+                if st.session_state.ea_enabled:
+                    st.success(f"EA check triggered on {inst_select}. Review the generated signal before live execution.")
+                else:
+                    st.warning("Enable the EA before triggering an automated check.")
+        with risk_col:
+            st.caption("EA execution remains subject to configured risk limits and broker connection.")
 
     with tab_quant:
         active_df = load_ohlcv(inst_cfg["yf"])
