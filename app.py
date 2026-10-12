@@ -33,6 +33,8 @@ import streamlit as st
 import streamlit.components.v1 as components
 import yfinance as yf
 
+from forex_factory_calendar import CalendarFetchError, fetch_calendar
+
 try:
     import websocket  # pip install websocket-client
 except ImportError:
@@ -1353,15 +1355,102 @@ def page_prop():
         st.success(f"Saved: {save_monitor_config()} (permissions restricted; it may contain tokens).")
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def load_forex_factory_calendar():
+    return fetch_calendar()
+
+
 def page_news():
-    page_header("News Trading & Economic Calendar", "No events are invented here.")
-    st.info("No verified economic-calendar API is configured, so live events, release times and actual/forecast values can't be shown. "
-            "Connect a trusted provider before using this for time-sensitive trading.")
-    st.selectbox("Display timezone", ["Asia/Kolkata (IST)", "UTC", "America/New_York", "Europe/London"], key="news_tz")
-    cur = st.multiselect("Currencies to watch", ["USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD"], default=["USD", "EUR"])
-    imp = st.multiselect("Impact levels", ["High", "Medium", "Low"], default=["High"])
-    lead = st.slider("Pre-release caution window (minutes)", 5, 120, 30, 5)
-    st.write(f"• Watching: {', '.join(cur) or 'none'} · impact: {', '.join(imp) or 'none'} · block new entries {lead} min before a verified release.")
+    page_header("News Trading & Economic Calendar", "Forex Factory calendar · UTC · cached for 5 minutes")
+    st.caption(
+        "Best-effort integration with Forex Factory's public HTML calendar, not an official API. "
+        "Source markup, access restrictions, or timezone settings can change."
+    )
+    st.link_button("Open Forex Factory calendar", "https://www.forexfactory.com/calendar")
+    if st.button("↻ Refresh calendar", use_container_width=True):
+        load_forex_factory_calendar.clear()
+
+    currencies = st.multiselect(
+        "Currencies to watch",
+        ["USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD", "CNY", "INR"],
+        default=["USD", "EUR"], key="news_currencies",
+    )
+    impacts = st.multiselect(
+        "Impact levels", ["High", "Medium", "Low", "Holiday", "Unknown"],
+        default=["High"], key="news_impacts",
+    )
+    lead = st.slider("Pre-release caution window (minutes)", 5, 180, 30, 5, key="news_lead_minutes")
+    post = st.slider("Post-release caution window (minutes)", 0, 60, 15, 5, key="news_post_minutes")
+    st.caption("Caution windows are advisory. They do not automatically block broker orders or guarantee execution safety.")
+
+    try:
+        with st.spinner("Loading Forex Factory economic calendar…"):
+            events = load_forex_factory_calendar()
+    except CalendarFetchError as exc:
+        st.error(str(exc))
+        st.warning("No synthetic events are shown as live data. Try again later or verify the calendar directly.")
+        return
+    except Exception as exc:
+        st.error(f"Unexpected calendar error: {exc}")
+        return
+
+    now = datetime.now(timezone.utc)
+    selected = [
+        e for e in events
+        if (not currencies or e["currency"] in currencies)
+        and (not impacts or e["impact"] in impacts)
+    ]
+    parsed = []
+    for event in selected:
+        dt_value = event.get("datetime_utc")
+        dt = datetime.fromisoformat(dt_value) if dt_value else None
+        row = dict(event)
+        row["_dt"] = dt
+        parsed.append(row)
+    parsed.sort(key=lambda e: (e["_dt"] is None, e["_dt"] or datetime.max.replace(tzinfo=timezone.utc)))
+
+    upcoming = [e for e in parsed if e["_dt"] and e["_dt"] >= now]
+    active = [
+        e for e in parsed if e["_dt"] and
+        now - timedelta(minutes=post) <= e["_dt"] <= now + timedelta(minutes=lead)
+    ]
+
+    if "news_alerted_ids" not in ss:
+        ss.news_alerted_ids = []
+    for event in active:
+        alert_key = f"{event['id']}|{lead}|{post}"
+        if alert_key not in ss.news_alerted_ids:
+            append_notification(
+                f"News caution: {event['impact']} {event['currency']}",
+                f"{event['event']} · {event['_dt'].strftime('%Y-%m-%d %H:%M UTC')} · active caution window.",
+                "WARNING" if event["impact"] == "High" else "INFO",
+            )
+            ss.news_alerted_ids.append(alert_key)
+    ss.news_alerted_ids = ss.news_alerted_ids[-200:]
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Events loaded", len(events))
+    c2.metric("Upcoming selected", len(upcoming))
+    c3.metric("Active caution windows", len(active))
+    if active:
+        st.warning("Caution window active: " + ", ".join(f"{e['currency']} — {e['event']}" for e in active))
+    else:
+        st.success("No selected events are currently inside the configured caution window.")
+
+    rows = []
+    for event in parsed:
+        dt = event["_dt"]
+        rows.append({
+            "Time (UTC)": dt.strftime("%Y-%m-%d %H:%M") if dt else f"{event['date_utc']} · {event['time_source']}",
+            "Currency": event["currency"], "Impact": event["impact"], "Event": event["event"],
+            "Actual": event["actual"] or "—", "Forecast": event["forecast"] or "—",
+            "Previous": event["previous"] or "—",
+        })
+    if rows:
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    else:
+        st.info("No events match the selected filters in the fetched calendar view.")
+    st.caption("Only events with an exact parsed release time trigger caution alerts. Confirm the source's timezone in Forex Factory before relying on timing.")
 
 
 def page_settings():
