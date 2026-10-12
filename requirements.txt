@@ -8,3 +8,4 @@ requests
 websocket-client
 streamlit-autorefresh
 tradingview-ta
+beautifulsoup4

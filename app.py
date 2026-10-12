@@ -23,6 +23,7 @@ import time
 from collections import deque
 from datetime import datetime, timedelta, timezone, time as dtime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -32,6 +33,8 @@ from sklearn.ensemble import IsolationForest
 import streamlit as st
 import streamlit.components.v1 as components
 import yfinance as yf
+
+from forex_factory_calendar import CalendarFetchError, fetch_calendar
 
 try:
     import websocket  # pip install websocket-client
@@ -115,7 +118,7 @@ NAV_GROUPS = {
         ("⚡ Broker Gateway", "broker"),
         ("🛡 Prop-Firm Center", "prop"),
     ],
-    "SYSTEM": [("⚙️ Settings", "settings")],
+    "SYSTEM": [("⚙ Settings", "settings")],
 }
 
 STRATEGY_MODELS = ["EMA Crossover", "MACD Crossover", "RSI Reversal", "Bollinger Breakout"]
@@ -178,7 +181,7 @@ def persist() -> None:
 
 
 DEFAULTS = {
-    "page": "dashboard", "account_balance": 100000.0, "positions": [],
+    "page": "dashboard", "experience_mode": "Guided", "account_balance": 100000.0, "positions": [],
     "broker_connected": False, "broker_name": "MetaTrader 5 (MT5)",
     "broker_api_mode": "Paper / Demo", "broker_api_endpoint": "", "broker_api_key": "",
     "saved_strategies": [], "saved_eas": [], "active_ea": None, "ea_enabled": False,
@@ -316,9 +319,10 @@ def market_is_open(category: str) -> bool:
     if category == "nse":        # Mon-Fri 09:15-15:30 IST
         ist = now + timedelta(hours=5, minutes=30)
         return ist.weekday() < 5 and dtime(9, 15) <= ist.time() <= dtime(15, 30)
-    if category == "us_equity":  # Mon-Fri 09:30-16:00 ET (UTC-5, no DST)
-        et = now - timedelta(hours=5)
-        return et.weekday() < 5 and dtime(9, 30) <= et.time() <= dtime(16, 0)
+    if category == "us_equity":  # Mon-Fri 09:30-16:00 America/New_York; DST-aware
+        et = now.astimezone(ZoneInfo("America/New_York"))
+        et_time = et.time().replace(tzinfo=None)
+        return et.weekday() < 5 and dtime(9, 30) <= et_time <= dtime(16, 0)
     return True
 
 
@@ -547,6 +551,15 @@ def save_monitor_config() -> str:
                               "prop_daily_loss_limit_pct", "prop_max_drawdown_pct",
                               "prop_max_trade_risk_pct", "telegram_bot_token", "telegram_chat_id",
                               "discord_webhook", "alert_email", "broker_api_endpoint")}
+    # Match the standalone service schema, but leave monitoring and EA execution OFF by default.
+    cfg.update({
+        "enabled": False,
+        "assets": ["Gold (XAU/USD)", "Bitcoin (BTC/USDT)", "NIFTY 50 Index"],
+        "interval_seconds": 60,
+        "max_trade_risk_pct": float(ss.prop_max_trade_risk_pct),
+        "auto_ea_on_signal": False,
+        "ea_execution_mode": "PAPER",
+    })
     path = APP_DIR / "prop_ai_monitor_config.json"
     path.write_text(json.dumps(cfg, indent=2), "utf-8")
     try:
@@ -705,28 +718,70 @@ def page_header(subtitle: str, caption: str | None = None):
                 f'<span>| {subtitle}</span></div>', unsafe_allow_html=True)
     if caption:
         st.caption(caption)
+    if ss.experience_mode == "Guided":
+        plain_language = {
+            "Chart Analysis": "Choose a market to explore its price chart. Quotes can be delayed; this page is for learning and analysis.",
+            "Pip & Risk Calculator": "Enter your balance and planned stop-loss to estimate possible loss and position size. Check contract units with your broker.",
+            "Execution Bridge": "This page currently simulates a connection status; it does not verify your broker login or submit real orders.",
+            "Strategy Lab": "A strategy is a set of rules for when to enter and exit a trade. Save rules here, then test them on historical data.",
+            "Backtesting Workspace": "A backtest is a historical simulation. Fees, slippage, data quality, and open positions can change the result.",
+            "Settings": "Set up optional data feeds and alert preferences. Never paste broker passwords or private keys into a public repository.",
+            "Prop-Firm Risk Center": "These figures are estimates based on the values you enter, not a live broker account balance.",
+            "News Trading & Economic Calendar": "This calendar helps you prepare for scheduled reports. High impact means potentially larger movement, not a guaranteed price direction.",
+            "EA / Expert Advisors": "An Expert Advisor (EA) is automated trading logic. Saving or enabling an EA here does not mean a broker is executing it.",
+        }
+        tip = plain_language.get(subtitle)
+        if tip:
+            st.info(tip)
 
 
 def render_sidebar():
     with st.sidebar:
         st.markdown('<div class="ssad-logo"><div class="icon">⚡</div><div><div class="name">SSAD</div>'
-                    '<div class="sub">Smart Session Anomaly Detector</div></div></div>'
-                    '<div class="ssad-status">🟢 ML ENGINE ONLINE</div>', unsafe_allow_html=True)
-        for group, items in NAV_GROUPS.items():
+                    '<div class="sub">Market intelligence & trading research</div></div></div>', unsafe_allow_html=True)
+        # "Guided" and "Professional" describe the interface style, not the user's skill.
+        saved_mode = ss.experience_mode
+        ss.experience_mode = st.selectbox(
+            "Workspace",
+            ["Guided", "Professional"],
+            index=0 if saved_mode in {"Guided", "Beginner"} else 1,
+            help="Guided offers a focused overview and plain-language explanations. Professional shows the full workspace and compact technical labels; both modes use the same underlying tools.",
+            key="workspace_mode_picker",
+        )
+        st.caption(
+            "Choose Guided for clearer explanations, or Professional for the full technical workspace. "
+            "You can switch at any time."
+        )
+        if ss.experience_mode == "Guided":
+            nav_items = [
+                ("OVERVIEW", [("⌂ Overview", "dashboard"), ("📊 Markets & Charts", "chart"),
+                                 ("🗓️ Economic Calendar", "news"), ("🛡️ Risk & Position Size", "risk")]),
+                ("RESEARCH & PRACTICE", [("⚙ Strategy Builder", "strategy"), ("📈 Backtest Research", "backtest")]),
+                ("PREFERENCES", [("⚙️ Settings", "settings")]),
+            ]
+            with st.expander("More tools (optional)", expanded=False):
+                for label, pid in [("Broker setup", "broker"), ("Expert Advisors", "ea"), ("Prop-firm rules", "prop")]:
+                    st.button(label, key=f"nav_{pid}", use_container_width=True,
+                              type="primary" if ss.page == pid else "secondary",
+                              on_click=switch_page, args=(pid,))
+        else:
+            nav_items = list(NAV_GROUPS.items())
+
+        for group, items in nav_items:
             st.markdown(f'<div class="ssad-nav-label">{group}</div>', unsafe_allow_html=True)
             for label, pid in items:
                 st.button(label, key=f"nav_{pid}", use_container_width=True,
                           type="primary" if ss.page == pid else "secondary",
                           on_click=switch_page, args=(pid,))
         st.divider()
-        st.caption("CONNECTION")
+        st.caption("STATUS")
         c1, c2 = st.columns(2)
         n = live_feed_count()
-        c1.metric("Live feeds", f"{n} ●" if n else "None")
-        c2.metric("Broker", "Connected" if ss.broker_connected else "Offline")
+        c1.metric("Live feeds", f"{n} ●" if n else "No live feed")
+        c2.metric("Broker", "Demo / offline" if not ss.broker_connected else "Session flag on")
         t1, t2 = st.columns(2)
-        ss.alerts_on = t1.toggle("🔔 Alerts", value=ss.alerts_on)
-        ss.voice_enabled = t2.toggle("🔊 Voice", value=ss.voice_enabled)
+        ss.alerts_on = t1.toggle("🔔 Alerts", value=ss.alerts_on, help="Turn in-app alerts on or off.")
+        ss.voice_enabled = t2.toggle("🔊 Voice", value=ss.voice_enabled, help="Read co-pilot replies aloud.")
 
 
 def sparkline(points, color) -> str:
@@ -901,79 +956,157 @@ def hero_background() -> str:
 
 
 def page_dashboard():
-    hero_html = """
-    <div class="ssad-hero ssad-hero-clean" style="__HERO_STYLE__">
-        <div class="ssad-hero-grid"></div>
-        <div class="ssad-hero-glow"></div>
-        <div class="ssad-hero-copy">
-            <div class="ssad-eyebrow">QUANT TRADING TERMINAL <span>•</span> SESSION INTELLIGENCE</div>
-            <h1>Smart Session<br/><span>Anomaly Detector</span></h1>
-            <p>Multi-asset market intelligence, anomaly detection, execution controls and systematic strategy research — all in one professional workspace.</p>
-            <div class="ssad-chip-row">
-                <span class="ssad-chip live">● ML ENGINE ONLINE</span>
-                <span class="ssad-chip blue">◎ MULTI-MARKET</span>
-                <span class="ssad-chip purple">◷ MULTI-TIMEFRAME ANALYSIS</span>
-                <span class="ssad-chip cyan">↗ FLEXIBLE EXECUTION</span>
-            </div>
-            <div class="ssad-feature-line">
-                <span>◉ LIVE MARKET DATA</span><b>•</b>
-                <span>♧ ANOMALY MONITORING</span><b>•</b>
-                <span>◎ SIGNAL GENERATION</span>
-            </div>
-        </div>
-        <div class="ssad-hero-orbit orbit-one"></div>
-        <div class="ssad-hero-orbit orbit-two"></div>
-        <div class="ssad-hero-node node-one"></div>
-        <div class="ssad-hero-node node-two"></div>
-        <div class="ssad-hero-node node-three"></div>
-    </div>
-    """.replace("__HERO_STYLE__", hero_background())
-    st.markdown(hero_html, unsafe_allow_html=True)
-    st.markdown('<div class="ssad-section-title">Workspace</div>', unsafe_allow_html=True)
+    """Surveillance-terminal dashboard: all metrics are derived from app state or fetched market data."""
+    st.markdown(
+        '<div class="ssad-page-header">⚡ Smart Session Anomaly Detector '
+        '<span>| Market Surveillance Terminal</span></div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="ssad-eyebrow">MARKET INTELLIGENCE · ANOMALY SURVEILLANCE · SESSION ANALYSIS</div>',
+        unsafe_allow_html=True,
+    )
+    st.title("Market Overview")
+    st.caption("Live and delayed values are labelled by source. When a provider has no data, the dashboard shows unavailable rather than inventing market activity.")
 
-    # ---- live numbers for each card (all derived from real state) ----
-    q, src = quote_for(GOLD["live"], GOLD["yf"])
-    gdf = anomaly_table(GOLD["yf"])
-    anomalies = int(gdf["anomaly"].sum()) if not gdf.empty else None
-    sig = make_signal_snapshot(float(q["price"]) if q else None, fetch_ohlcv(GOLD["yf"]))
-    price_html = (f"<div class='ssad-price'>XAU/USD {q['price']:,.2f}</div><div class='ssad-move {'up' if q['pct']>=0 else 'down'}'>"
-                  f"{q['pct']:+.2f}% · {src}</div>") if q else "<div class='ssad-price'>XAU/USD —</div><div class='ssad-move'>no data</div>"
-    markets_body = price_html + "<div class='ssad-meta'>" \
-        f"<span class='ssad-pill'>ANOMALIES {anomalies if anomalies is not None else 'n/a'}</span>" \
-        f"<span class='ssad-pill {'good' if sig else 'warn'}'>SIGNAL {sig['side'] if sig else 'WAITING'}</span></div>"
+    q, quote_source = quote_for(GOLD["live"], GOLD["yf"])
+    df = fetch_ohlcv(GOLD["yf"], "1mo", "15m")
+    anomalies_df = anomaly_table(GOLD["yf"])
+    anomaly_rows = anomalies_df[anomalies_df["anomaly"]] if not anomalies_df.empty and "anomaly" in anomalies_df else pd.DataFrame()
+    active_feeds = live_feed_count()
+    quote_label = quote_source or "UNAVAILABLE"
+    latest_price = float(q["price"]) if q else None
+    signal = make_signal_snapshot(latest_price, df)
 
-    risk_cash = ss.account_balance * ss.prop_max_trade_risk_pct / 100
-    lots = risk_cash / (abs(sig["entry"] - sig["sl"]) * GOLD["lot_units"]) if sig and sig["entry"] != sig["sl"] else 0.0
-    risk_body = stat_row(("Risk / trade", f"{ss.prop_max_trade_risk_pct:.2f}%"), ("R:R", f"1:{sig['rr']:.1f}" if sig else "—"),
-                         ("Lots", f"{lots:.2f}")) + f"<div class='ssad-meta'><span class='ssad-pill'>CAPITAL ${ss.account_balance:,.0f}</span><span class='ssad-pill'>RISK ${risk_cash:,.0f}</span></div>"
-    broker_body = stat_row(("Broker", "ON" if ss.broker_connected else "OFF"), ("Mode", ss.broker_api_mode.split(" ")[0]),
-                           ("Positions", len(ss.positions)))
-    latest = ss.saved_strategies[-1]["name"] if ss.saved_strategies else "None yet"
-    strat_body = stat_row(("Saved", len(ss.saved_strategies)), ("Models", len(STRATEGY_MODELS)), ("Presets", len(STRATEGY_PRESETS))) + \
-        f"<div class='ssad-meta'><span class='ssad-pill'>LATEST: {latest}</span></div>"
-    bt = ss.last_backtest
-    bt_body = (stat_row(("Net P/L", f"${bt['net']:,.0f}"), ("Win rate", f"{bt['winrate']:.0f}%"), ("Trades", len(bt['trades'])))
-               if bt else "<div class='ssad-meta'><span class='ssad-pill warn'>NO BACKTEST YET</span></div>")
-    ea_body = stat_row(("Active", (ss.active_ea or "None")[:10]), ("State", "ON" if ss.ea_enabled else "OFF"),
-                       ("Deployed", len(ss.ea_deployments)))
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("XAU/USD", f"{latest_price:,.2f}" if latest_price is not None else "Unavailable",
+              f"{float(q.get('pct', 0)):+.2f}%" if q else None)
+    k2.metric("Quote Source", quote_label, "Provider timestamp may vary" if q else "Waiting for provider")
+    k3.metric("Anomalies in window", str(len(anomaly_rows)) if not anomalies_df.empty else "Unavailable",
+              "Isolation Forest + feature rules" if not anomalies_df.empty else "Insufficient market data")
+    k4.metric("Live feeds", str(active_feeds), "WebSocket quotes received" if active_feeds else "No active WebSocket quotes")
 
-    cards = [
-        ("chart", "Markets & Analysis", markets_body, "Candlesticks, anomaly zones and AI signals.", "Open Markets →", "chart"),
-        ("risk", "Risk Management", risk_body, "Position sizing, stop distance and R:R planning.", "Calculate Risk →", "risk"),
-        ("broker", "Trade Execution", broker_body, "Paper, live-approval or bridge-based execution.", "Open Execution →", "broker"),
-        ("quant", "Strategy Lab", strat_body, "Build rule-based strategies or load institutional setups.", "Open Strategy Lab →", "strategy"),
-        ("quant", "Backtesting", bt_body, "Historical candle tests with real provider data only.", "Open Backtesting →", "backtest"),
-        ("ai", "Expert Advisors", ea_body, "Build, validate and deploy automated logic.", "Open EA Studio →", "ea"),
-    ]
-    for row in (cards[:3], cards[3:]):
-        for col, (art, title, body, desc, btn, target) in zip(st.columns(3, gap="medium"), row):
+    left, right = st.columns([2.1, 1], gap="medium")
+    with left:
+        with st.container(border=True):
+            st.markdown("#### Price Action & Anomaly Markers")
+            st.caption(f"Gold · {len(df):,} candles available · historical provider data")
+            if not df.empty:
+                fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.035,
+                                    row_heights=[0.76, 0.24])
+                fig.add_trace(go.Candlestick(
+                    x=df.index, open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"],
+                    name="XAU/USD", increasing_line_color="#39d9a5", decreasing_line_color="#ff657a"
+                ), row=1, col=1)
+                if not anomalies_df.empty:
+                    flagged = anomalies_df[anomalies_df["anomaly"]]
+                    if not flagged.empty:
+                        fig.add_trace(go.Scatter(
+                            x=flagged.index, y=flagged["High"] * 1.002, mode="markers",
+                            name="Detected anomaly",
+                            marker=dict(symbol="diamond", size=10, color="#ffc857",
+                                        line=dict(width=1, color="#101722")),
+                            hovertemplate="Anomaly<br>%{x}<br>Price %{y:.2f}<extra></extra>",
+                        ), row=1, col=1)
+                if "Volume" in df:
+                    fig.add_trace(go.Bar(x=df.index, y=df["Volume"], name="Volume",
+                                         marker_color="#426c86", opacity=0.8), row=2, col=1)
+                fig.update_layout(
+                    template="plotly_dark", height=440, margin=dict(l=8, r=8, t=18, b=8),
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#0a101a",
+                    legend=dict(orientation="h", y=1.03, x=0), xaxis_rangeslider_visible=False,
+                    hovermode="x unified",
+                )
+                fig.update_xaxes(gridcolor="rgba(150,170,195,.09)")
+                fig.update_yaxes(gridcolor="rgba(150,170,195,.09)")
+                st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True})
+            else:
+                st.info("Price chart unavailable because the market-data provider did not return enough candles.")
+    with right:
+        with st.container(border=True):
+            st.markdown("#### Live Anomaly Feed")
+            st.caption("Latest flagged bars from the current historical analysis window.")
+            if not anomalies_df.empty and not anomaly_rows.empty:
+                for ts, event in anomaly_rows.tail(5).iloc[::-1].iterrows():
+                    severity = "HIGH" if abs(float(event.get("z_score", 0))) >= 2.5 or float(event.get("vol_surge", 0)) >= 3 else "MEDIUM"
+                    st.markdown(
+                        f"**{severity} · XAU/USD**  \n"
+                        f"<span style='color:#8291a8;font-size:.8rem'>{pd.Timestamp(ts).strftime('%d %b %H:%M')} · "
+                        f"Price {float(event['Close']):,.2f}</span>",
+                        unsafe_allow_html=True,
+                    )
+                    st.caption(
+                        f"Z-score {float(event.get('z_score', 0)):.2f} · "
+                        f"Volume surge {float(event.get('vol_surge', 0)):.2f}×"
+                    )
+                    st.divider()
+            elif not anomalies_df.empty:
+                st.success("No anomalies flagged in the available window.")
+            else:
+                st.warning("Anomaly feed is waiting for sufficient market data.")
+            if st.button("Open anomaly analysis", key="dashboard_open_anomaly", use_container_width=True):
+                switch_page("chart")
+
+    st.markdown("#### Feature Monitor")
+    f1, f2, f3 = st.columns(3, gap="medium")
+    if not anomalies_df.empty:
+        with f1:
+            with st.container(border=True):
+                st.markdown("**Rolling volatility**")
+                st.line_chart(anomalies_df["rolling_vol"].tail(40), height=120)
+                st.caption(f"Latest: {float(anomalies_df['rolling_vol'].iloc[-1]):.5f}")
+        with f2:
+            with st.container(border=True):
+                st.markdown("**Price deviation (Z-score)**")
+                st.line_chart(anomalies_df["z_score"].tail(40), height=120)
+                st.caption(f"Latest: {float(anomalies_df['z_score'].iloc[-1]):.2f} σ")
+        with f3:
+            with st.container(border=True):
+                st.markdown("**Volume surge**")
+                st.line_chart(anomalies_df["vol_surge"].tail(40), height=120)
+                st.caption(f"Latest: {float(anomalies_df['vol_surge'].iloc[-1]):.2f}× baseline")
+    else:
+        for col, label in zip((f1, f2, f3), ("Rolling volatility", "Price deviation (Z-score)", "Volume surge")):
             with col:
-                st.markdown(f'<div class="ssad-card"><div class="art">{ART[art]}</div><h3>{title}</h3>{body}<p>{desc}</p></div>',
-                            unsafe_allow_html=True)
-                st.button(btn, key=f"qa_{target}", use_container_width=True, on_click=switch_page, args=(target,))
-    st.markdown('<div class="ssad-note">Card metrics come from the live feed, your risk settings, broker state and saved results — nothing is hard-coded.</div>',
-                unsafe_allow_html=True)
+                with st.container(border=True):
+                    st.markdown(f"**{label}**")
+                    st.caption("Waiting for sufficient provider data.")
+
+    st.markdown("#### Session Analysis & Monitoring")
+    s1, s2, s3, s4 = st.columns(4, gap="small")
+    now_utc = datetime.now(timezone.utc)
+    sessions = [
+        ("Asia", dtime(0, 0), dtime(9, 0)),
+        ("London", dtime(7, 0), dtime(16, 0)),
+        ("New York", dtime(13, 0), dtime(22, 0)),
+    ]
+    for col, (label, start_time, end_time) in zip((s1, s2, s3), sessions):
+        with col:
+            is_active = start_time <= now_utc.time() < end_time
+            with st.container(border=True):
+                st.markdown(f"**{label} Session**")
+                st.markdown("🟢 Active" if is_active else "⚪ Outside core hours")
+                st.caption(f"Reference window: {start_time.strftime('%H:%M')}–{end_time.strftime('%H:%M')} UTC")
+    with s4:
+        with st.container(border=True):
+            st.markdown("**Monitoring Mode**")
+            st.markdown("🟡 Data analysis")
+            st.caption("Screen capture is not yet configured as a background service.")
+
+    c1, c2, c3 = st.columns([1, 1, 1.5], gap="medium")
+    with c1:
+        if st.button("▶ Open Markets", use_container_width=True, key="dashboard_markets"):
+            switch_page("chart")
+    with c2:
+        if st.button("◷ Economic Calendar", use_container_width=True, key="dashboard_calendar"):
+            switch_page("news")
+    with c3:
+        st.caption("Trading actions remain in demo/local state unless a real broker integration is separately implemented and verified.")
+
+    if signal:
+        st.info(f"Technical snapshot: {signal['side']} · {signal.get('risk_reason', 'Review setup and risk controls')}. This is a rule-based indicator, not a prediction.")
     st.button("🤖 Open AI Co-Pilot", key="qa_bot", on_click=open_bot)
+
 
 
 def tradingview_widget(cfg, height=600) -> None:
@@ -1091,8 +1224,11 @@ def page_risk():
         st.metric("Stop distance", f"{sl_pts:,.4f}")
         st.metric("Risk : Reward", f"1 : {tp_pts / sl_pts:.2f}" if sl_pts else "—")
     if sl_pts > 0:
-        st.success(f"🎯 Recommended size: **{risk_usd / (sl_pts * cfg['lot_units']):.2f} lots** "
+        size_label = "Estimated position size" if ss.experience_mode == "Guided" else "Recommended size"
+        st.success(f"🎯 {size_label}: **{risk_usd / (sl_pts * cfg['lot_units']):.2f} lots** "
                    f"(contract size {cfg['lot_units']:,})")
+        if ss.experience_mode == "Guided":
+            st.caption("This is a rough estimate using the app's contract-size assumptions. Broker margin, currency conversion, fees and instrument rules may change the actual risk.")
     else:
         st.info("Set a stop-loss different from entry to size the position.")
 
@@ -1353,15 +1489,144 @@ def page_prop():
         st.success(f"Saved: {save_monitor_config()} (permissions restricted; it may contain tokens).")
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def load_forex_factory_calendar():
+    return fetch_calendar()
+
+
+@st.fragment(run_every=60)
 def page_news():
-    page_header("News Trading & Economic Calendar", "No events are invented here.")
-    st.info("No verified economic-calendar API is configured, so live events, release times and actual/forecast values can't be shown. "
-            "Connect a trusted provider before using this for time-sensitive trading.")
-    st.selectbox("Display timezone", ["Asia/Kolkata (IST)", "UTC", "America/New_York", "Europe/London"], key="news_tz")
-    cur = st.multiselect("Currencies to watch", ["USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD"], default=["USD", "EUR"])
-    imp = st.multiselect("Impact levels", ["High", "Medium", "Low"], default=["High"])
-    lead = st.slider("Pre-release caution window (minutes)", 5, 120, 30, 5)
-    st.write(f"• Watching: {', '.join(cur) or 'none'} · impact: {', '.join(imp) or 'none'} · block new entries {lead} min before a verified release.")
+    page_header("News Trading & Economic Calendar", "Forex Factory calendar · UTC · cached for 5 minutes")
+    st.caption(
+        "Best-effort integration with Forex Factory's public HTML calendar, not an official API. "
+        "Source markup, access restrictions, or timezone settings can change."
+    )
+    st.link_button("Open Forex Factory calendar", "https://www.forexfactory.com/calendar")
+    if st.button("↻ Refresh calendar", use_container_width=True):
+        load_forex_factory_calendar.clear()
+
+    currencies = st.multiselect(
+        "Currencies to watch",
+        ["USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD", "CNY", "INR"],
+        default=["USD", "EUR"], key="news_currencies",
+        help="Select the currencies relevant to the markets you follow. Clear selections show no events.",
+    )
+    impacts = st.multiselect(
+        "Impact levels", ["High", "Medium", "Low", "Holiday", "Unknown"],
+        default=["High"], key="news_impacts",
+        help="Impact is the source's estimate of potential market importance, not a prediction of price direction.",
+    )
+    lead = st.slider("Pause new ideas before release (minutes)", 5, 180, 30, 5, key="news_lead_minutes",
+                     help="Creates an in-app caution window. It does not automatically block orders.")
+    post = st.slider("Stay cautious after release (minutes)", 0, 60, 15, 5, key="news_post_minutes",
+                     help="News can cause fast spreads and slippage after the scheduled release.")
+    st.caption("Caution windows are advisory. They do not automatically block broker orders or guarantee execution safety.")
+
+    try:
+        with st.spinner("Loading Forex Factory economic calendar…"):
+            events = load_forex_factory_calendar()
+    except CalendarFetchError as exc:
+        st.error(str(exc))
+        st.warning("No synthetic events are shown as live data. Try again later or verify the calendar directly.")
+        return
+    except Exception as exc:
+        st.error(f"Unexpected calendar error: {exc}")
+        return
+
+    now = datetime.now(timezone.utc)
+    selected = [
+        e for e in events
+        if e["currency"] in currencies and e["impact"] in impacts
+    ]
+    parsed = []
+    for event in selected:
+        dt_value = event.get("datetime_utc")
+        dt = datetime.fromisoformat(dt_value) if dt_value else None
+        row = dict(event)
+        row["_dt"] = dt
+        parsed.append(row)
+    parsed.sort(key=lambda e: (e["_dt"] is None, e["_dt"] or datetime.max.replace(tzinfo=timezone.utc)))
+
+    upcoming = [e for e in parsed if e["_dt"] and e["_dt"] >= now]
+    active = [
+        e for e in parsed if e["_dt"] and
+        now - timedelta(minutes=post) <= e["_dt"] <= now + timedelta(minutes=lead)
+    ]
+
+    if "news_alerted_ids" not in ss:
+        ss.news_alerted_ids = []
+    for event in active:
+        alert_key = f"{event['id']}|{lead}|{post}"
+        if alert_key not in ss.news_alerted_ids and ss.alerts_on:
+            append_notification(
+                f"News caution: {event['impact']} {event['currency']}",
+                f"{event['event']} · {event['_dt'].strftime('%Y-%m-%d %H:%M UTC')} · active caution window.",
+                "WARNING" if event["impact"] == "High" else "INFO",
+            )
+            ss.news_alerted_ids.append(alert_key)
+    ss.news_alerted_ids = ss.news_alerted_ids[-200:]
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Events loaded", len(events))
+    c2.metric("Upcoming selected", len(upcoming))
+    c3.metric("Active caution windows", len(active))
+    if active:
+        st.warning("Caution window active: " + ", ".join(f"{e['currency']} — {e['event']}" for e in active))
+    else:
+        st.success("No selected events are currently inside the configured caution window.")
+
+    st.markdown("### News trading analysis")
+    st.caption(
+        "This panel prioritizes upcoming high-impact releases and maps their currencies to commonly watched instruments. "
+        "It does not infer a buy/sell direction from the event name alone."
+    )
+    related_instruments = {
+        "USD": ["EUR/USD", "GBP/USD", "USD/JPY", "XAU/USD"],
+        "EUR": ["EUR/USD"], "GBP": ["GBP/USD"], "JPY": ["USD/JPY"],
+        "AUD": ["AUD/USD"], "CAD": ["USD/CAD"], "CHF": ["USD/CHF"],
+        "NZD": ["NZD/USD"], "CNY": ["AUD/USD", "NZD/USD"], "INR": ["USD/INR"],
+    }
+    next_high = [e for e in upcoming if e["impact"] == "High"][:5]
+    if next_high:
+        for event in next_high:
+            dt = event["_dt"]
+            minutes = max(0, int((dt - now).total_seconds() // 60))
+            time_left = f"{minutes // 60}h {minutes % 60}m"
+            symbols = related_instruments.get(event["currency"], ["Related instruments depend on exposure"])
+            st.markdown(
+                f"**{event['currency']} · {event['event']}** — {dt.strftime('%Y-%m-%d %H:%M UTC')} "
+                f"(in {time_left})"
+            )
+            st.caption(f"Impact: High · Watchlist: {', '.join(symbols)}")
+            if event["actual"] and event["forecast"]:
+                st.caption(
+                    f"Reported values — actual: {event['actual']}; forecast: {event['forecast']}; "
+                    f"previous: {event['previous'] or 'not supplied'}. Check the indicator definition and revisions before interpreting the surprise."
+                )
+    else:
+        st.info("No upcoming high-impact events in the selected currencies and impact filters.")
+
+    rows = []
+    for event in parsed:
+        dt = event["_dt"]
+        if dt and dt >= now:
+            minutes = int((dt - now).total_seconds() // 60)
+            countdown = f"{minutes // 60}h {minutes % 60}m"
+        else:
+            countdown = "—"
+        rows.append({
+            "Time (UTC)": dt.strftime("%Y-%m-%d %H:%M") if dt else f"{event['date_utc']} · {event['time_source']}",
+            "Countdown": countdown,
+            "Currency": event["currency"], "Impact": event["impact"], "Event": event["event"],
+            "Actual": event["actual"] or "—", "Forecast": event["forecast"] or "—",
+            "Previous": event["previous"] or "—",
+        })
+    if rows:
+        st.markdown("### Economic calendar")
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    else:
+        st.info("No events match the selected filters in the fetched calendar view.")
+    st.caption("Only events with an exact parsed release time trigger caution alerts. Confirm the source's timezone in Forex Factory before relying on timing.")
 
 
 def page_settings():
