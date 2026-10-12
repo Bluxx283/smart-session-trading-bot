@@ -11,4 +11,3 @@ tradingview-ta
 beautifulsoup4
 mss
 Pillow
-PySide6
