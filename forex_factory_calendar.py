@@ -48,9 +48,14 @@ def _parse_date(raw: str, today: date) -> date | None:
     raw = " ".join((raw or "").split())
     if not raw:
         return None
-    for fmt in ("%a %b %d", "%b %d", "%A %B %d"):
+    candidates = (
+        ("%a %b %d %Y", f"{raw} {today.year}"),
+        ("%b %d %Y", f"{raw} {today.year}"),
+        ("%A %B %d %Y", f"{raw} {today.year}"),
+    )
+    for fmt, candidate in candidates:
         try:
-            parsed = datetime.strptime(raw, fmt).date().replace(year=today.year)
+            parsed = datetime.strptime(candidate, fmt).date()
             if (parsed - today).days > 180:
                 parsed = parsed.replace(year=today.year - 1)
             elif (today - parsed).days > 180:
