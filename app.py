@@ -726,6 +726,7 @@ def page_header(subtitle: str, caption: str | None = None):
             "Strategy Lab": "A strategy is a set of rules for when to enter and exit a trade. Save rules here, then test them on historical data.",
             "Backtesting": "A backtest is a historical simulation. Fees, slippage, data quality, and open positions can change the result.",
             "Prop-Firm Risk Center": "These figures are estimates based on the values you enter, not a live broker account balance.",
+            "News Trading & Economic Calendar": "This calendar helps you prepare for scheduled reports. High impact means potentially larger movement, not a guaranteed price direction.",
             "EA / Expert Advisors": "An Expert Advisor (EA) is automated trading logic. Saving or enabling an EA here does not mean a broker is executing it.",
         }
         tip = plain_language.get(subtitle)
@@ -1199,8 +1200,11 @@ def page_risk():
         st.metric("Stop distance", f"{sl_pts:,.4f}")
         st.metric("Risk : Reward", f"1 : {tp_pts / sl_pts:.2f}" if sl_pts else "—")
     if sl_pts > 0:
-        st.success(f"🎯 Recommended size: **{risk_usd / (sl_pts * cfg['lot_units']):.2f} lots** "
+        size_label = "Estimated position size" if ss.experience_mode == "Beginner" else "Recommended size"
+        st.success(f"🎯 {size_label}: **{risk_usd / (sl_pts * cfg['lot_units']):.2f} lots** "
                    f"(contract size {cfg['lot_units']:,})")
+        if ss.experience_mode == "Beginner":
+            st.caption("This is a rough estimate using the app's contract-size assumptions. Broker margin, currency conversion, fees and instrument rules may change the actual risk.")
     else:
         st.info("Set a stop-loss different from entry to size the position.")
 
@@ -1481,13 +1485,17 @@ def page_news():
         "Currencies to watch",
         ["USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD", "CNY", "INR"],
         default=["USD", "EUR"], key="news_currencies",
+        help="Select the currencies relevant to the markets you follow. Clear selections show no events.",
     )
     impacts = st.multiselect(
         "Impact levels", ["High", "Medium", "Low", "Holiday", "Unknown"],
         default=["High"], key="news_impacts",
+        help="Impact is the source's estimate of potential market importance, not a prediction of price direction.",
     )
-    lead = st.slider("Pre-release caution window (minutes)", 5, 180, 30, 5, key="news_lead_minutes")
-    post = st.slider("Post-release caution window (minutes)", 0, 60, 15, 5, key="news_post_minutes")
+    lead = st.slider("Pause new ideas before release (minutes)", 5, 180, 30, 5, key="news_lead_minutes",
+                     help="Creates an in-app caution window. It does not automatically block orders.")
+    post = st.slider("Stay cautious after release (minutes)", 0, 60, 15, 5, key="news_post_minutes",
+                     help="News can cause fast spreads and slippage after the scheduled release.")
     st.caption("Caution windows are advisory. They do not automatically block broker orders or guarantee execution safety.")
 
     try:
