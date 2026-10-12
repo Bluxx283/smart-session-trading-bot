@@ -549,6 +549,15 @@ def save_monitor_config() -> str:
                               "prop_daily_loss_limit_pct", "prop_max_drawdown_pct",
                               "prop_max_trade_risk_pct", "telegram_bot_token", "telegram_chat_id",
                               "discord_webhook", "alert_email", "broker_api_endpoint")}
+    # Match the standalone service schema, but leave monitoring and EA execution OFF by default.
+    cfg.update({
+        "enabled": False,
+        "assets": ["Gold (XAU/USD)", "Bitcoin (BTC/USDT)", "NIFTY 50 Index"],
+        "interval_seconds": 60,
+        "max_trade_risk_pct": float(ss.prop_max_trade_risk_pct),
+        "auto_ea_on_signal": False,
+        "ea_execution_mode": "PAPER",
+    })
     path = APP_DIR / "prop_ai_monitor_config.json"
     path.write_text(json.dumps(cfg, indent=2), "utf-8")
     try:
