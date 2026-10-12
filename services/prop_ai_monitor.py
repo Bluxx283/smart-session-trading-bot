@@ -153,7 +153,6 @@ def main():
                 sig["risk_approved"] = float(sig["risk_pct"]) <= float(cfg.get("max_trade_risk_pct", 0.5))
                 if not sig["risk_approved"]:
                     continue
-                    continue
                 key = f"{asset}:{sig['side']}:{round(sig['entry'], 2)}"
                 # Prevent repeated notifications for the same setup for 30 minutes.
                 if key in last_sent and time.time() - last_sent[key] < 1800:
