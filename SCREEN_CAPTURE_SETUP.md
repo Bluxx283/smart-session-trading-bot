@@ -2,24 +2,26 @@
 
 ## Current status
 
-SSAD currently analyzes market-provider OHLCV candles and overlays statistical anomaly markers. It does **not** capture the desktop, a broker window, or chart pixels. The dashboard now labels this explicitly.
+SSAD analyzes market-provider OHLCV candles and overlays statistical anomaly markers. The dashboard now includes an **opt-in, one-shot local display capture prototype**: after checking a consent box, the user chooses a display and clicks Capture. The frame is encoded in memory, previewed in the Streamlit session, and timestamped in UTC; the helper does not save it to disk or run in the background. Install `mss` via `requirements.txt`.
 
-## Recommended implementation sequence
+**Important:** run Streamlit locally on the same computer as TradingView. A remotely hosted Streamlit app captures the server display, not the user's desktop. This prototype does not yet read chart text or detect patterns.
 
-1. **Choose a capture source**: a user-selected window or monitor. For a local Python app, use an OS capture library such as `mss`; for browser-mediated capture, use `getDisplayMedia()` only after an explicit click and user permission.
-2. **Keep capture opt-in**: show the active source, capture status, last-frame time, and a visible Stop control. Never start capture silently.
-3. **Add a frame pipeline**: timestamp each frame in UTC, resize/downsample it, and discard frames when capture is stopped. Avoid storing screenshots by default.
-4. **Validate before inference**: check for a blank/occluded frame, expected chart region, readable symbol/timeframe, and OCR confidence. Do not convert uncertain pixels into trade signals.
-5. **Compare against known states**: test chart symbol, displayed price, and candle direction against the existing provider feed; report mismatches instead of silently choosing one source.
-6. **Keep actions safe**: screenshot-derived findings are informational until measured on a labelled test set. Leave automated orders disabled.
+## Recommended next implementation sequence
+
+1. **Verify one-shot capture locally**: open TradingView, run `streamlit run app.py` on that same computer, consent, and capture the display showing the chart.
+2. **Add OCR with confidence reporting**: extract symbol, timeframe, and visible price; do not accept low-confidence readings as facts.
+3. **Add visual checks**: chart-region presence, blank/occluded frame detection, and basic candle/shape analysis.
+4. **Compare against known states**: test chart symbol, displayed price, and candle direction against the existing provider feed; report mismatches instead of silently choosing one source.
+5. **Keep actions safe**: screenshot-derived findings remain informational until measured on a labelled test set. Leave automated orders disabled.
 
 ## Acceptance checklist
 
-- [ ] User can start capture only after selecting a source and granting permission.
-- [ ] UI clearly displays Capturing / Stopped / Permission denied / No frames.
-- [ ] Last-frame timestamp is shown in UTC and stale frames trigger a warning.
-- [ ] Stop immediately ends frame processing.
-- [ ] No screenshots or secrets are persisted by default.
+- [x] User must explicitly consent and click Capture for a one-shot frame.
+- [x] UI shows a preview, UTC timestamp, and capture errors.
+- [x] The capture helper encodes in memory and does not save screenshots to disk.
+- [ ] UI supports an active Capture / Stop lifecycle for continuous monitoring.
+- [ ] OCR extracts symbol, timeframe, and price with confidence scores.
+- [ ] Stale frames and occluded charts are detected.
 - [ ] Tests cover permission failure, missing frames, stale frames, and source mismatch.
 - [ ] No order can be triggered by a screenshot-only result.
 
