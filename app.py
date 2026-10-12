@@ -1360,6 +1360,7 @@ def load_forex_factory_calendar():
     return fetch_calendar()
 
 
+@st.fragment(run_every=60)
 def page_news():
     page_header("News Trading & Economic Calendar", "Forex Factory calendar · UTC · cached for 5 minutes")
     st.caption(
@@ -1419,7 +1420,7 @@ def page_news():
         ss.news_alerted_ids = []
     for event in active:
         alert_key = f"{event['id']}|{lead}|{post}"
-        if alert_key not in ss.news_alerted_ids:
+        if alert_key not in ss.news_alerted_ids and ss.alerts_on:
             append_notification(
                 f"News caution: {event['impact']} {event['currency']}",
                 f"{event['event']} · {event['_dt'].strftime('%Y-%m-%d %H:%M UTC')} · active caution window.",
