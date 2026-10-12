@@ -118,7 +118,7 @@ NAV_GROUPS = {
         ("⚡ Broker Gateway", "broker"),
         ("🛡 Prop-Firm Center", "prop"),
     ],
-    "SYSTEM": [("⚙️ Settings", "settings")],
+    "SYSTEM": [("⚙ Settings", "settings")],
 }
 
 STRATEGY_MODELS = ["EMA Crossover", "MACD Crossover", "RSI Reversal", "Bollinger Breakout"]
@@ -181,7 +181,7 @@ def persist() -> None:
 
 
 DEFAULTS = {
-    "page": "dashboard", "experience_mode": "Beginner", "account_balance": 100000.0, "positions": [],
+    "page": "dashboard", "experience_mode": "Guided", "account_balance": 100000.0, "positions": [],
     "broker_connected": False, "broker_name": "MetaTrader 5 (MT5)",
     "broker_api_mode": "Paper / Demo", "broker_api_endpoint": "", "broker_api_key": "",
     "saved_strategies": [], "saved_eas": [], "active_ea": None, "ea_enabled": False,
@@ -718,7 +718,7 @@ def page_header(subtitle: str, caption: str | None = None):
                 f'<span>| {subtitle}</span></div>', unsafe_allow_html=True)
     if caption:
         st.caption(caption)
-    if ss.experience_mode == "Beginner":
+    if ss.experience_mode == "Guided":
         plain_language = {
             "Chart Analysis": "Choose a market to explore its price chart. Quotes can be delayed; this page is for learning and analysis.",
             "Pip & Risk Calculator": "Enter your balance and planned stop-loss to estimate possible loss and position size. Check contract units with your broker.",
@@ -739,20 +739,25 @@ def render_sidebar():
     with st.sidebar:
         st.markdown('<div class="ssad-logo"><div class="icon">⚡</div><div><div class="name">SSAD</div>'
                     '<div class="sub">Your market learning companion</div></div></div>', unsafe_allow_html=True)
+        # "Guided" and "Professional" describe the interface style, not the user's skill.
+        saved_mode = ss.experience_mode
         ss.experience_mode = st.selectbox(
-            "Experience level",
-            ["Beginner", "Advanced"],
-            index=0 if ss.experience_mode == "Beginner" else 1,
-            help="Beginner mode uses plain-language labels and a simpler home screen. Advanced mode shows every tool.",
+            "Workspace",
+            ["Guided", "Professional"],
+            index=0 if saved_mode in {"Guided", "Beginner"} else 1,
+            help="Guided keeps the same serious tools with clearer explanations and a simpler starting point. Professional shows the full workspace and compact technical labels.",
             key="experience_mode_picker",
         )
-        st.caption("Start in Beginner mode; switch to Advanced whenever you're ready.")
-        if ss.experience_mode == "Beginner":
+        st.caption(
+            "Choose Guided for clearer explanations, or Professional for the full technical workspace. "
+            "You can switch at any time."
+        )
+        if ss.experience_mode == "Guided":
             nav_items = [
-                ("GET STARTED", [("🏠 Home", "dashboard"), ("📈 Markets", "chart"),
-                                 ("🗓️ News & Calendar", "news"), ("🛡️ Risk Calculator", "risk")]),
-                ("LEARN & PRACTICE", [("🧩 Build a Strategy", "strategy"), ("🧪 Test a Strategy", "backtest")]),
-                ("SETUP", [("⚙️ Settings", "settings")]),
+                ("OVERVIEW", [("⌂ Overview", "dashboard"), ("📊 Markets & Charts", "chart"),
+                                 ("🗓️ Economic Calendar", "news"), ("🛡️ Risk & Position Size", "risk")]),
+                ("RESEARCH & PRACTICE", [("⚙ Strategy Builder", "strategy"), ("📈 Backtest Research", "backtest")]),
+                ("PREFERENCES", [("⚙️ Settings", "settings")]),
             ]
             with st.expander("More tools (optional)", expanded=False):
                 for label, pid in [("Broker setup", "broker"), ("Expert Advisors", "ea"), ("Prop-firm rules", "prop")]:
@@ -951,11 +956,11 @@ def hero_background() -> str:
 
 
 def page_dashboard():
-    if ss.experience_mode == "Beginner":
-        st.title("Welcome to SSAD 👋")
-        st.write("Your simple starting point for learning markets, checking economic news, and practising risk management.")
+    if ss.experience_mode == "Guided":
+        st.title("Market overview")
+        st.write("Market data, scheduled economic releases, and risk tools in one workspace — with clear explanations when you need them.")
         st.info(
-            "**New to trading?** Start with Markets, check the News Calendar, then use the Risk Calculator. "
+            "**Suggested workflow:** review the market, check scheduled news, then estimate risk before evaluating a trade idea. "
             "You can practise and explore without placing real trades."
         )
 
@@ -970,29 +975,29 @@ def page_dashboard():
             "Prices may be delayed."
         )
 
-        st.subheader("What would you like to do?")
+        st.subheader("Quick access")
         c1, c2, c3 = st.columns(3, gap="medium")
         with c1:
             with st.container(border=True):
-                st.markdown("### 📈 Explore markets")
-                st.write("View a chart and see how prices have moved.")
-                st.button("Open markets", key="beginner_markets", use_container_width=True,
+                st.markdown("### 📊 Markets & charts")
+                st.write("Review price action, available quotes, and market structure.")
+                st.button("View markets", key="beginner_markets", use_container_width=True,
                           on_click=switch_page, args=("chart",))
         with c2:
             with st.container(border=True):
-                st.markdown("### 🗓️ Check economic news")
-                st.write("See scheduled releases that can move currencies and gold.")
-                st.button("Open news calendar", key="beginner_news", use_container_width=True,
+                st.markdown("### 🗓️ Economic calendar")
+                st.write("Review scheduled releases, impact levels, and event timing.")
+                st.button("View calendar", key="beginner_news", use_container_width=True,
                           on_click=switch_page, args=("news",))
         with c3:
             with st.container(border=True):
-                st.markdown("### 🛡️ Understand risk")
-                st.write("Estimate how much a trade could lose if your stop is reached.")
-                st.button("Calculate risk", key="beginner_risk", use_container_width=True,
+                st.markdown("### 🛡️ Risk analysis")
+                st.write("Estimate potential loss and position size from your planned stop.")
+                st.button("Open risk tools", key="beginner_risk", use_container_width=True,
                           on_click=switch_page, args=("risk",))
 
-        st.subheader("Trading words, in plain English")
-        with st.expander("Show the beginner glossary"):
+        st.subheader("Terminology guide")
+        with st.expander("Explain common trading terms"):
             st.markdown(
                 "- **Currency pair:** two currencies quoted together, such as EUR/USD.\n"
                 "- **Economic event:** a scheduled report or central-bank announcement that may move prices.\n"
@@ -1201,10 +1206,10 @@ def page_risk():
         st.metric("Stop distance", f"{sl_pts:,.4f}")
         st.metric("Risk : Reward", f"1 : {tp_pts / sl_pts:.2f}" if sl_pts else "—")
     if sl_pts > 0:
-        size_label = "Estimated position size" if ss.experience_mode == "Beginner" else "Recommended size"
+        size_label = "Estimated position size" if ss.experience_mode == "Guided" else "Recommended size"
         st.success(f"🎯 {size_label}: **{risk_usd / (sl_pts * cfg['lot_units']):.2f} lots** "
                    f"(contract size {cfg['lot_units']:,})")
-        if ss.experience_mode == "Beginner":
+        if ss.experience_mode == "Guided":
             st.caption("This is a rough estimate using the app's contract-size assumptions. Broker margin, currency conversion, fees and instrument rules may change the actual risk.")
     else:
         st.info("Set a stop-loss different from entry to size the position.")
