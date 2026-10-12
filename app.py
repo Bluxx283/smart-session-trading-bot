@@ -181,7 +181,7 @@ def persist() -> None:
 
 
 DEFAULTS = {
-    "page": "dashboard", "account_balance": 100000.0, "positions": [],
+    "page": "dashboard", "experience_mode": "Beginner", "account_balance": 100000.0, "positions": [],
     "broker_connected": False, "broker_name": "MetaTrader 5 (MT5)",
     "broker_api_mode": "Paper / Demo", "broker_api_endpoint": "", "broker_api_key": "",
     "saved_strategies": [], "saved_eas": [], "active_ea": None, "ea_enabled": False,
@@ -718,28 +718,63 @@ def page_header(subtitle: str, caption: str | None = None):
                 f'<span>| {subtitle}</span></div>', unsafe_allow_html=True)
     if caption:
         st.caption(caption)
+    if ss.experience_mode == "Beginner":
+        plain_language = {
+            "Chart Analysis": "Choose a market to explore its price chart. Quotes can be delayed; this page is for learning and analysis.",
+            "Pip & Risk Calculator": "Enter your balance and planned stop-loss to estimate possible loss and position size. Check contract units with your broker.",
+            "Execution Bridge": "This page currently simulates a connection status; it does not verify your broker login or submit real orders.",
+            "Strategy Lab": "A strategy is a set of rules for when to enter and exit a trade. Save rules here, then test them on historical data.",
+            "Backtesting": "A backtest is a historical simulation. Fees, slippage, data quality, and open positions can change the result.",
+            "Prop-Firm Risk Center": "These figures are estimates based on the values you enter, not a live broker account balance.",
+            "EA / Expert Advisors": "An Expert Advisor (EA) is automated trading logic. Saving or enabling an EA here does not mean a broker is executing it.",
+        }
+        tip = plain_language.get(subtitle)
+        if tip:
+            st.info(tip)
 
 
 def render_sidebar():
     with st.sidebar:
         st.markdown('<div class="ssad-logo"><div class="icon">⚡</div><div><div class="name">SSAD</div>'
-                    '<div class="sub">Smart Session Anomaly Detector</div></div></div>'
-                    '<div class="ssad-status">🟢 ML ENGINE ONLINE</div>', unsafe_allow_html=True)
-        for group, items in NAV_GROUPS.items():
+                    '<div class="sub">Your market learning companion</div></div></div>', unsafe_allow_html=True)
+        ss.experience_mode = st.selectbox(
+            "Experience level",
+            ["Beginner", "Advanced"],
+            index=0 if ss.experience_mode == "Beginner" else 1,
+            help="Beginner mode uses plain-language labels and a simpler home screen. Advanced mode shows every tool.",
+            key="experience_mode_picker",
+        )
+        st.caption("Start in Beginner mode; switch to Advanced whenever you're ready.")
+        if ss.experience_mode == "Beginner":
+            nav_items = [
+                ("GET STARTED", [("🏠 Home", "dashboard"), ("📈 Markets", "chart"),
+                                 ("🗓️ News & Calendar", "news"), ("🛡️ Risk Calculator", "risk")]),
+                ("LEARN & PRACTICE", [("🧩 Build a Strategy", "strategy"), ("🧪 Test a Strategy", "backtest")]),
+                ("SETUP", [("⚙️ Settings", "settings")]),
+            ]
+            with st.expander("More tools (optional)", expanded=False):
+                for label, pid in [("Broker setup", "broker"), ("Expert Advisors", "ea"), ("Prop-firm rules", "prop")]:
+                    st.button(label, key=f"nav_{pid}", use_container_width=True,
+                              type="primary" if ss.page == pid else "secondary",
+                              on_click=switch_page, args=(pid,))
+        else:
+            nav_items = list(NAV_GROUPS.items())
+
+        for group, items in nav_items:
             st.markdown(f'<div class="ssad-nav-label">{group}</div>', unsafe_allow_html=True)
             for label, pid in items:
                 st.button(label, key=f"nav_{pid}", use_container_width=True,
                           type="primary" if ss.page == pid else "secondary",
                           on_click=switch_page, args=(pid,))
         st.divider()
-        st.caption("CONNECTION")
+        st.caption("STATUS")
         c1, c2 = st.columns(2)
         n = live_feed_count()
-        c1.metric("Live feeds", f"{n} ●" if n else "None")
-        c2.metric("Broker", "Connected" if ss.broker_connected else "Offline")
+        c1.metric("Live feeds", f"{n} ●" if n else "No live feed")
+        c2.metric("Broker", "Demo / offline" if not ss.broker_connected else "Session flag on")
         t1, t2 = st.columns(2)
-        ss.alerts_on = t1.toggle("🔔 Alerts", value=ss.alerts_on)
-        ss.voice_enabled = t2.toggle("🔊 Voice", value=ss.voice_enabled)
+        ss.alerts_on = t1.toggle("🔔 Alerts", value=ss.alerts_on, help="Turn in-app alerts on or off.")
+        ss.voice_enabled = t2.toggle("🔊 Voice", value=ss.voice_enabled, help="Read co-pilot replies aloud.")
 
 
 def sparkline(points, color) -> str:
@@ -914,6 +949,66 @@ def hero_background() -> str:
 
 
 def page_dashboard():
+    if ss.experience_mode == "Beginner":
+        st.title("Welcome to SSAD 👋")
+        st.write("Your simple starting point for learning markets, checking economic news, and practising risk management.")
+        st.info(
+            "**New to trading?** Start with Markets, check the News Calendar, then use the Risk Calculator. "
+            "You can practise and explore without placing real trades."
+        )
+
+        q, source = quote_for(GOLD["live"], GOLD["yf"])
+        sig = make_signal_snapshot(float(q["price"]) if q else None, fetch_ohlcv(GOLD["yf"]))
+        top = st.columns(3)
+        top[0].metric("Gold price (XAU/USD)", f"{q['price']:,.2f}" if q else "Unavailable")
+        top[1].metric("Quote type", source or "No data")
+        top[2].metric("Indicator snapshot", sig["side"].title() if sig else "Waiting for data")
+        st.caption(
+            "The indicator snapshot is a simple technical rule, not a prediction or a recommendation to buy or sell. "
+            "Prices may be delayed."
+        )
+
+        st.subheader("What would you like to do?")
+        c1, c2, c3 = st.columns(3, gap="medium")
+        with c1:
+            with st.container(border=True):
+                st.markdown("### 📈 Explore markets")
+                st.write("View a chart and see how prices have moved.")
+                st.button("Open markets", key="beginner_markets", use_container_width=True,
+                          on_click=switch_page, args=("chart",))
+        with c2:
+            with st.container(border=True):
+                st.markdown("### 🗓️ Check economic news")
+                st.write("See scheduled releases that can move currencies and gold.")
+                st.button("Open news calendar", key="beginner_news", use_container_width=True,
+                          on_click=switch_page, args=("news",))
+        with c3:
+            with st.container(border=True):
+                st.markdown("### 🛡️ Understand risk")
+                st.write("Estimate how much a trade could lose if your stop is reached.")
+                st.button("Calculate risk", key="beginner_risk", use_container_width=True,
+                          on_click=switch_page, args=("risk",))
+
+        st.subheader("Trading words, in plain English")
+        with st.expander("Show the beginner glossary"):
+            st.markdown(
+                "- **Currency pair:** two currencies quoted together, such as EUR/USD.\n"
+                "- **Economic event:** a scheduled report or central-bank announcement that may move prices.\n"
+                "- **High impact:** an event expected to have greater potential to move markets; it does not predict direction.\n"
+                "- **Stop loss (SL):** an instruction intended to close a trade at a chosen loss level; execution can differ in fast markets.\n"
+                "- **Take profit (TP):** a target price where you plan to exit a trade.\n"
+                "- **Backtest:** a simulation of rules on historical data; it does not guarantee future results.\n"
+                "- **Demo / paper trading:** practising with simulated orders instead of real broker orders."
+            )
+        st.warning(
+            "Safety first: this app's broker connection is not a verified broker login. Orders shown here may be simulated. "
+            "Do not enter real credentials or rely on this app to place live trades."
+        )
+        if st.button("🤖 Ask the AI Co-Pilot a beginner question", use_container_width=True):
+            open_bot()
+            st.rerun()
+        return
+
     hero_html = """
     <div class="ssad-hero ssad-hero-clean" style="__HERO_STYLE__">
         <div class="ssad-hero-grid"></div>
