@@ -9,3 +9,5 @@ websocket-client
 streamlit-autorefresh
 tradingview-ta
 beautifulsoup4
+mss
+Pillow

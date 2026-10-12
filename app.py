@@ -35,6 +35,7 @@ import streamlit.components.v1 as components
 import yfinance as yf
 
 from forex_factory_calendar import CalendarFetchError, fetch_calendar
+from screen_capture import capture_screen_once, ScreenCaptureError
 
 try:
     import websocket  # pip install websocket-client
@@ -1090,8 +1091,48 @@ def page_dashboard():
     with s4:
         with st.container(border=True):
             st.markdown("**Monitoring Mode**")
-            st.markdown("🟡 Data analysis")
-            st.caption("Screen capture is not yet configured as a background service.")
+            st.markdown("🟡 Market-data analysis")
+            st.caption("Desktop screen capture: not configured")
+
+    with st.container(border=True):
+        st.markdown("#### TradingView Screen Capture — Prototype")
+        st.warning("Capture works only when SSAD is running locally on the same computer as TradingView. If this app is hosted remotely, it would capture the server's screen, not your browser.")
+        consent = st.checkbox(
+            "I understand this captures one image of my selected display when I click the button. The image is shown in this session only and is not saved by SSAD.",
+            key="ssad_screen_capture_consent",
+        )
+        display_index = st.selectbox(
+            "Display to capture",
+            options=[1, 2, 3, 4],
+            format_func=lambda x: f"Display {x}",
+            index=0,
+            key="ssad_capture_display",
+            help="If you have fewer displays than selected, capture will show an error. Use Display 1 for your primary monitor.",
+        )
+        if st.button("Capture one screenshot", key="ssad_capture_once", disabled=not consent, type="secondary"):
+            try:
+                frame, captured_at = capture_screen_once(display_index)
+                st.session_state["ssad_capture_frame"] = frame
+                st.session_state["ssad_capture_time"] = captured_at
+                st.session_state["ssad_capture_error"] = None
+            except ScreenCaptureError as exc:
+                st.session_state["ssad_capture_error"] = str(exc)
+                st.session_state.pop("ssad_capture_frame", None)
+                st.session_state.pop("ssad_capture_time", None)
+        if st.session_state.get("ssad_capture_error"):
+            st.error(st.session_state["ssad_capture_error"])
+        if st.session_state.get("ssad_capture_frame") is not None:
+            st.image(st.session_state["ssad_capture_frame"], caption="One-time local display capture — not saved", use_container_width=True)
+            st.caption(f"Captured at {st.session_state['ssad_capture_time']} UTC")
+        st.caption("This is a one-shot capture test, not continuous monitoring. OCR, chart-pattern extraction, and automated trading are not enabled.")
+        cap1, cap2 = st.columns(2, gap="medium")
+        with cap1:
+            st.markdown("**Implemented in this prototype**")
+            st.markdown("- Explicit consent and manual capture button\n- Display selection and visible captured-frame preview\n- UTC timestamp and clear error reporting")
+        with cap2:
+            st.markdown("**Next validation step**")
+            st.markdown("- Confirm the TradingView chart is visible in the captured frame\n- Add OCR for symbol, timeframe, and displayed price\n- Add image-based pattern checks and compare them with provider data")
+        st.caption("Monitoring and order execution remain disabled; this feature does not place trades.")
 
     c1, c2, c3 = st.columns([1, 1, 1.5], gap="medium")
     with c1:
