@@ -738,14 +738,14 @@ def page_header(subtitle: str, caption: str | None = None):
 def render_sidebar():
     with st.sidebar:
         st.markdown('<div class="ssad-logo"><div class="icon">⚡</div><div><div class="name">SSAD</div>'
-                    '<div class="sub">Your market learning companion</div></div></div>', unsafe_allow_html=True)
+                    '<div class="sub">Market intelligence & trading research</div></div></div>', unsafe_allow_html=True)
         # "Guided" and "Professional" describe the interface style, not the user's skill.
         saved_mode = ss.experience_mode
         ss.experience_mode = st.selectbox(
             "Workspace",
             ["Guided", "Professional"],
             index=0 if saved_mode in {"Guided", "Beginner"} else 1,
-            help="Guided keeps the same serious tools with clearer explanations and a simpler starting point. Professional shows the full workspace and compact technical labels.",
+            help="Guided offers a focused overview and plain-language explanations. Professional shows the full workspace and compact technical labels; both modes use the same underlying tools.",
             key="workspace_mode_picker",
         )
         st.caption(
