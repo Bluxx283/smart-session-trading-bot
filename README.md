@@ -30,10 +30,10 @@
 
 ## Beginner-friendly mode
 
-The app opens in **Beginner** mode by default. Use the **Experience level** selector in the sidebar to switch between:
+The app opens in **Guided** mode by default. Use the **Workspace** selector in the sidebar to switch between:
 
-- **Beginner:** simple navigation, a guided home page, a short trading glossary, and plain-language notes on charts, news, risk, and backtesting.
-- **Advanced:** the full set of strategy, backtesting, Expert Advisor, broker, and prop-firm tools.
+- **Guided:** a professional overview, focused navigation, clear explanations, and a terminology guide without removing the core market, news, and risk tools.
+- **Professional:** the full technical workspace, including strategy research, backtesting, Expert Advisors, broker setup, and prop-firm controls.
 
 ### Suggested first session
 
