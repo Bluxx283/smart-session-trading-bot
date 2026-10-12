@@ -956,139 +956,157 @@ def hero_background() -> str:
 
 
 def page_dashboard():
-    if ss.experience_mode == "Guided":
-        st.title("Market overview")
-        st.write("Market data, scheduled economic releases, and risk tools in one workspace — with clear explanations when you need them.")
-        st.info(
-            "**Suggested workflow:** review the market, check scheduled news, then estimate risk before evaluating a trade idea. "
-            "You can practise and explore without placing real trades."
-        )
+    """Surveillance-terminal dashboard: all metrics are derived from app state or fetched market data."""
+    st.markdown(
+        '<div class="ssad-page-header">⚡ Smart Session Anomaly Detector '
+        '<span>| Market Surveillance Terminal</span></div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="ssad-eyebrow">MARKET INTELLIGENCE · ANOMALY SURVEILLANCE · SESSION ANALYSIS</div>',
+        unsafe_allow_html=True,
+    )
+    st.title("Market Overview")
+    st.caption("Live and delayed values are labelled by source. When a provider has no data, the dashboard shows unavailable rather than inventing market activity.")
 
-        q, source = quote_for(GOLD["live"], GOLD["yf"])
-        sig = make_signal_snapshot(float(q["price"]) if q else None, fetch_ohlcv(GOLD["yf"]))
-        top = st.columns(3)
-        top[0].metric("Gold price (XAU/USD)", f"{q['price']:,.2f}" if q else "Unavailable")
-        top[1].metric("Quote type", source or "No data")
-        top[2].metric("Indicator snapshot", sig["side"].title() if sig else "Waiting for data")
-        st.caption(
-            "The indicator snapshot is a simple technical rule, not a prediction or a recommendation to buy or sell. "
-            "Prices may be delayed."
-        )
+    q, quote_source = quote_for(GOLD["live"], GOLD["yf"])
+    df = fetch_ohlcv(GOLD["yf"], "1mo", "15m")
+    anomalies_df = anomaly_table(GOLD["yf"])
+    anomaly_rows = anomalies_df[anomalies_df["anomaly"]] if not anomalies_df.empty and "anomaly" in anomalies_df else pd.DataFrame()
+    active_feeds = live_feed_count()
+    quote_label = quote_source or "UNAVAILABLE"
+    latest_price = float(q["price"]) if q else None
+    signal = make_signal_snapshot(latest_price, df)
 
-        st.subheader("Quick access")
-        c1, c2, c3 = st.columns(3, gap="medium")
-        with c1:
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("XAU/USD", f"{latest_price:,.2f}" if latest_price is not None else "Unavailable",
+              f"{float(q.get('pct', 0)):+.2f}%" if q else None)
+    k2.metric("Quote Source", quote_label, "Provider timestamp may vary" if q else "Waiting for provider")
+    k3.metric("Anomalies in window", str(len(anomaly_rows)) if not anomalies_df.empty else "Unavailable",
+              "Isolation Forest + feature rules" if not anomalies_df.empty else "Insufficient market data")
+    k4.metric("Live feeds", str(active_feeds), "WebSocket quotes received" if active_feeds else "No active WebSocket quotes")
+
+    left, right = st.columns([2.1, 1], gap="medium")
+    with left:
+        with st.container(border=True):
+            st.markdown("#### Price Action & Anomaly Markers")
+            st.caption(f"Gold · {len(df):,} candles available · historical provider data")
+            if not df.empty:
+                fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.035,
+                                    row_heights=[0.76, 0.24])
+                fig.add_trace(go.Candlestick(
+                    x=df.index, open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"],
+                    name="XAU/USD", increasing_line_color="#39d9a5", decreasing_line_color="#ff657a"
+                ), row=1, col=1)
+                if not anomalies_df.empty:
+                    flagged = anomalies_df[anomalies_df["anomaly"]]
+                    if not flagged.empty:
+                        fig.add_trace(go.Scatter(
+                            x=flagged.index, y=flagged["High"] * 1.002, mode="markers",
+                            name="Detected anomaly",
+                            marker=dict(symbol="diamond", size=10, color="#ffc857",
+                                        line=dict(width=1, color="#101722")),
+                            hovertemplate="Anomaly<br>%{x}<br>Price %{y:.2f}<extra></extra>",
+                        ), row=1, col=1)
+                if "Volume" in df:
+                    fig.add_trace(go.Bar(x=df.index, y=df["Volume"], name="Volume",
+                                         marker_color="#426c86", opacity=0.8), row=2, col=1)
+                fig.update_layout(
+                    template="plotly_dark", height=440, margin=dict(l=8, r=8, t=18, b=8),
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#0a101a",
+                    legend=dict(orientation="h", y=1.03, x=0), xaxis_rangeslider_visible=False,
+                    hovermode="x unified",
+                )
+                fig.update_xaxes(gridcolor="rgba(150,170,195,.09)")
+                fig.update_yaxes(gridcolor="rgba(150,170,195,.09)")
+                st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True})
+            else:
+                st.info("Price chart unavailable because the market-data provider did not return enough candles.")
+    with right:
+        with st.container(border=True):
+            st.markdown("#### Live Anomaly Feed")
+            st.caption("Latest flagged bars from the current historical analysis window.")
+            if not anomalies_df.empty and not anomaly_rows.empty:
+                for ts, event in anomaly_rows.tail(5).iloc[::-1].iterrows():
+                    severity = "HIGH" if abs(float(event.get("z_score", 0))) >= 2.5 or float(event.get("vol_surge", 0)) >= 3 else "MEDIUM"
+                    st.markdown(
+                        f"**{severity} · XAU/USD**  \n"
+                        f"<span style='color:#8291a8;font-size:.8rem'>{pd.Timestamp(ts).strftime('%d %b %H:%M')} · "
+                        f"Price {float(event['Close']):,.2f}</span>",
+                        unsafe_allow_html=True,
+                    )
+                    st.caption(
+                        f"Z-score {float(event.get('z_score', 0)):.2f} · "
+                        f"Volume surge {float(event.get('vol_surge', 0)):.2f}×"
+                    )
+                    st.divider()
+            elif not anomalies_df.empty:
+                st.success("No anomalies flagged in the available window.")
+            else:
+                st.warning("Anomaly feed is waiting for sufficient market data.")
+            if st.button("Open anomaly analysis", key="dashboard_open_anomaly", use_container_width=True):
+                switch_page("chart")
+
+    st.markdown("#### Feature Monitor")
+    f1, f2, f3 = st.columns(3, gap="medium")
+    if not anomalies_df.empty:
+        with f1:
             with st.container(border=True):
-                st.markdown("### 📊 Markets & charts")
-                st.write("Review price action, available quotes, and market structure.")
-                st.button("View markets", key="beginner_markets", use_container_width=True,
-                          on_click=switch_page, args=("chart",))
-        with c2:
+                st.markdown("**Rolling volatility**")
+                st.line_chart(anomalies_df["rolling_vol"].tail(40), height=120)
+                st.caption(f"Latest: {float(anomalies_df['rolling_vol'].iloc[-1]):.5f}")
+        with f2:
             with st.container(border=True):
-                st.markdown("### 🗓️ Economic calendar")
-                st.write("Review scheduled releases, impact levels, and event timing.")
-                st.button("View calendar", key="beginner_news", use_container_width=True,
-                          on_click=switch_page, args=("news",))
-        with c3:
+                st.markdown("**Price deviation (Z-score)**")
+                st.line_chart(anomalies_df["z_score"].tail(40), height=120)
+                st.caption(f"Latest: {float(anomalies_df['z_score'].iloc[-1]):.2f} σ")
+        with f3:
             with st.container(border=True):
-                st.markdown("### 🛡️ Risk analysis")
-                st.write("Estimate potential loss and position size from your planned stop.")
-                st.button("Open risk tools", key="beginner_risk", use_container_width=True,
-                          on_click=switch_page, args=("risk",))
-
-        st.subheader("Terminology guide")
-        with st.expander("Explain common trading terms"):
-            st.markdown(
-                "- **Currency pair:** two currencies quoted together, such as EUR/USD.\n"
-                "- **Economic event:** a scheduled report or central-bank announcement that may move prices.\n"
-                "- **High impact:** an event expected to have greater potential to move markets; it does not predict direction.\n"
-                "- **Stop loss (SL):** an instruction intended to close a trade at a chosen loss level; execution can differ in fast markets.\n"
-                "- **Take profit (TP):** a target price where you plan to exit a trade.\n"
-                "- **Backtest:** a simulation of rules on historical data; it does not guarantee future results.\n"
-                "- **Demo / paper trading:** practising with simulated orders instead of real broker orders."
-            )
-        st.warning(
-            "Safety first: this app's broker connection is not a verified broker login. Orders shown here may be simulated. "
-            "Do not enter real credentials or rely on this app to place live trades."
-        )
-        if st.button("🤖 Ask the AI Co-Pilot a beginner question", use_container_width=True):
-            open_bot()
-            st.rerun()
-        return
-
-    hero_html = """
-    <div class="ssad-hero ssad-hero-clean" style="__HERO_STYLE__">
-        <div class="ssad-hero-grid"></div>
-        <div class="ssad-hero-glow"></div>
-        <div class="ssad-hero-copy">
-            <div class="ssad-eyebrow">QUANT TRADING TERMINAL <span>•</span> SESSION INTELLIGENCE</div>
-            <h1>Smart Session<br/><span>Anomaly Detector</span></h1>
-            <p>Multi-asset market intelligence, anomaly detection, execution controls and systematic strategy research — all in one professional workspace.</p>
-            <div class="ssad-chip-row">
-                <span class="ssad-chip live">● ML ENGINE ONLINE</span>
-                <span class="ssad-chip blue">◎ MULTI-MARKET</span>
-                <span class="ssad-chip purple">◷ MULTI-TIMEFRAME ANALYSIS</span>
-                <span class="ssad-chip cyan">↗ FLEXIBLE EXECUTION</span>
-            </div>
-            <div class="ssad-feature-line">
-                <span>◉ LIVE MARKET DATA</span><b>•</b>
-                <span>♧ ANOMALY MONITORING</span><b>•</b>
-                <span>◎ SIGNAL GENERATION</span>
-            </div>
-        </div>
-        <div class="ssad-hero-orbit orbit-one"></div>
-        <div class="ssad-hero-orbit orbit-two"></div>
-        <div class="ssad-hero-node node-one"></div>
-        <div class="ssad-hero-node node-two"></div>
-        <div class="ssad-hero-node node-three"></div>
-    </div>
-    """.replace("__HERO_STYLE__", hero_background())
-    st.markdown(hero_html, unsafe_allow_html=True)
-    st.markdown('<div class="ssad-section-title">Workspace</div>', unsafe_allow_html=True)
-
-    # ---- live numbers for each card (all derived from real state) ----
-    q, src = quote_for(GOLD["live"], GOLD["yf"])
-    gdf = anomaly_table(GOLD["yf"])
-    anomalies = int(gdf["anomaly"].sum()) if not gdf.empty else None
-    sig = make_signal_snapshot(float(q["price"]) if q else None, fetch_ohlcv(GOLD["yf"]))
-    price_html = (f"<div class='ssad-price'>XAU/USD {q['price']:,.2f}</div><div class='ssad-move {'up' if q['pct']>=0 else 'down'}'>"
-                  f"{q['pct']:+.2f}% · {src}</div>") if q else "<div class='ssad-price'>XAU/USD —</div><div class='ssad-move'>no data</div>"
-    markets_body = price_html + "<div class='ssad-meta'>" \
-        f"<span class='ssad-pill'>ANOMALIES {anomalies if anomalies is not None else 'n/a'}</span>" \
-        f"<span class='ssad-pill {'good' if sig else 'warn'}'>SIGNAL {sig['side'] if sig else 'WAITING'}</span></div>"
-
-    risk_cash = ss.account_balance * ss.prop_max_trade_risk_pct / 100
-    lots = risk_cash / (abs(sig["entry"] - sig["sl"]) * GOLD["lot_units"]) if sig and sig["entry"] != sig["sl"] else 0.0
-    risk_body = stat_row(("Risk / trade", f"{ss.prop_max_trade_risk_pct:.2f}%"), ("R:R", f"1:{sig['rr']:.1f}" if sig else "—"),
-                         ("Lots", f"{lots:.2f}")) + f"<div class='ssad-meta'><span class='ssad-pill'>CAPITAL ${ss.account_balance:,.0f}</span><span class='ssad-pill'>RISK ${risk_cash:,.0f}</span></div>"
-    broker_body = stat_row(("Broker", "ON" if ss.broker_connected else "OFF"), ("Mode", ss.broker_api_mode.split(" ")[0]),
-                           ("Positions", len(ss.positions)))
-    latest = ss.saved_strategies[-1]["name"] if ss.saved_strategies else "None yet"
-    strat_body = stat_row(("Saved", len(ss.saved_strategies)), ("Models", len(STRATEGY_MODELS)), ("Presets", len(STRATEGY_PRESETS))) + \
-        f"<div class='ssad-meta'><span class='ssad-pill'>LATEST: {latest}</span></div>"
-    bt = ss.last_backtest
-    bt_body = (stat_row(("Net P/L", f"${bt['net']:,.0f}"), ("Win rate", f"{bt['winrate']:.0f}%"), ("Trades", len(bt['trades'])))
-               if bt else "<div class='ssad-meta'><span class='ssad-pill warn'>NO BACKTEST YET</span></div>")
-    ea_body = stat_row(("Active", (ss.active_ea or "None")[:10]), ("State", "ON" if ss.ea_enabled else "OFF"),
-                       ("Deployed", len(ss.ea_deployments)))
-
-    cards = [
-        ("chart", "Markets & Analysis", markets_body, "Candlesticks, anomaly zones and AI signals.", "Open Markets →", "chart"),
-        ("risk", "Risk Management", risk_body, "Position sizing, stop distance and R:R planning.", "Calculate Risk →", "risk"),
-        ("broker", "Trade Execution", broker_body, "Paper, live-approval or bridge-based execution.", "Open Execution →", "broker"),
-        ("quant", "Strategy Lab", strat_body, "Build rule-based strategies or load institutional setups.", "Open Strategy Lab →", "strategy"),
-        ("quant", "Backtesting", bt_body, "Historical candle tests with real provider data only.", "Open Backtesting →", "backtest"),
-        ("ai", "Expert Advisors", ea_body, "Build, validate and deploy automated logic.", "Open EA Studio →", "ea"),
-    ]
-    for row in (cards[:3], cards[3:]):
-        for col, (art, title, body, desc, btn, target) in zip(st.columns(3, gap="medium"), row):
+                st.markdown("**Volume surge**")
+                st.line_chart(anomalies_df["vol_surge"].tail(40), height=120)
+                st.caption(f"Latest: {float(anomalies_df['vol_surge'].iloc[-1]):.2f}× baseline")
+    else:
+        for col, label in zip((f1, f2, f3), ("Rolling volatility", "Price deviation (Z-score)", "Volume surge")):
             with col:
-                st.markdown(f'<div class="ssad-card"><div class="art">{ART[art]}</div><h3>{title}</h3>{body}<p>{desc}</p></div>',
-                            unsafe_allow_html=True)
-                st.button(btn, key=f"qa_{target}", use_container_width=True, on_click=switch_page, args=(target,))
-    st.markdown('<div class="ssad-note">Card metrics come from the live feed, your risk settings, broker state and saved results — nothing is hard-coded.</div>',
-                unsafe_allow_html=True)
+                with st.container(border=True):
+                    st.markdown(f"**{label}**")
+                    st.caption("Waiting for sufficient provider data.")
+
+    st.markdown("#### Session Analysis & Monitoring")
+    s1, s2, s3, s4 = st.columns(4, gap="small")
+    now_utc = datetime.now(timezone.utc)
+    sessions = [
+        ("Asia", dtime(0, 0), dtime(9, 0)),
+        ("London", dtime(7, 0), dtime(16, 0)),
+        ("New York", dtime(13, 0), dtime(22, 0)),
+    ]
+    for col, (label, start_time, end_time) in zip((s1, s2, s3), sessions):
+        with col:
+            is_active = start_time <= now_utc.time() < end_time
+            with st.container(border=True):
+                st.markdown(f"**{label} Session**")
+                st.markdown("🟢 Active" if is_active else "⚪ Outside core hours")
+                st.caption(f"Reference window: {start_time.strftime('%H:%M')}–{end_time.strftime('%H:%M')} UTC")
+    with s4:
+        with st.container(border=True):
+            st.markdown("**Monitoring Mode**")
+            st.markdown("🟡 Data analysis")
+            st.caption("Screen capture is not yet configured as a background service.")
+
+    c1, c2, c3 = st.columns([1, 1, 1.5], gap="medium")
+    with c1:
+        if st.button("▶ Open Markets", use_container_width=True, key="dashboard_markets"):
+            switch_page("chart")
+    with c2:
+        if st.button("◷ Economic Calendar", use_container_width=True, key="dashboard_calendar"):
+            switch_page("news")
+    with c3:
+        st.caption("Trading actions remain in demo/local state unless a real broker integration is separately implemented and verified.")
+
+    if signal:
+        st.info(f"Technical snapshot: {signal['side']} · {signal.get('risk_reason', 'Review setup and risk controls')}. This is a rule-based indicator, not a prediction.")
     st.button("🤖 Open AI Co-Pilot", key="qa_bot", on_click=open_bot)
+
 
 
 def tradingview_widget(cfg, height=600) -> None:
