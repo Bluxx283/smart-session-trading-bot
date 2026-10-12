@@ -169,7 +169,8 @@ def main():
                 exec_result = execute_ea(cfg, sig)
                 if exec_result.get("status") == "executed":
                     results["ea"] = exec_result
-                    msg += f"\n\n🤖 EA: {exec_result.get("mode", "EXECUTED")} trade triggered."
+                    execution_mode = exec_result.get("mode", "EXECUTED")
+                    msg += f"\n\n🤖 EA: {execution_mode} trade triggered."
                     notify_all(cfg, msg)
                 else:
                     results["ea"] = exec_result
