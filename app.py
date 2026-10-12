@@ -1407,8 +1407,7 @@ def page_news():
     now = datetime.now(timezone.utc)
     selected = [
         e for e in events
-        if (not currencies or e["currency"] in currencies)
-        and (not impacts or e["impact"] in impacts)
+        if e["currency"] in currencies and e["impact"] in impacts
     ]
     parsed = []
     for event in selected:
