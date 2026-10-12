@@ -1090,8 +1090,22 @@ def page_dashboard():
     with s4:
         with st.container(border=True):
             st.markdown("**Monitoring Mode**")
-            st.markdown("🟡 Data analysis")
-            st.caption("Screen capture is not yet configured as a background service.")
+            st.markdown("🟡 Market-data analysis")
+            st.caption("Desktop screen capture: not configured")
+
+    with st.container(border=True):
+        st.markdown("#### Screen Capture Readiness")
+        st.warning("Screen capture is not connected. The dashboard currently analyzes provider candles; it does not see your desktop, broker window, or chart pixels.")
+        cap1, cap2 = st.columns([1.4, 1], gap="medium")
+        with cap1:
+            st.markdown("**What is working now**")
+            st.markdown("- XAU/USD quote and historical candles\n- Statistical anomaly scoring on downloaded OHLCV data\n- Chart markers and feature metrics")
+            st.markdown("**What is not active**")
+            st.markdown("- Continuous desktop/window capture\n- OCR or visual pattern extraction from screenshots\n- Background monitoring when this Streamlit session is closed")
+        with cap2:
+            st.markdown("**Recommended next setup**")
+            st.markdown("1. Run SSAD locally on the same computer as your chart.\n2. Add an explicit user-triggered capture source (window/monitor) with OS permission.\n3. Convert captured frames into timestamped observations and test them against known chart states.\n4. Keep capture and any order execution disabled until validation passes.")
+            st.caption("A browser or Streamlit page cannot silently capture the desktop; the user must grant capture permission.")
 
     c1, c2, c3 = st.columns([1, 1, 1.5], gap="medium")
     with c1:
