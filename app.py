@@ -746,7 +746,7 @@ def render_sidebar():
             ["Guided", "Professional"],
             index=0 if saved_mode in {"Guided", "Beginner"} else 1,
             help="Guided keeps the same serious tools with clearer explanations and a simpler starting point. Professional shows the full workspace and compact technical labels.",
-            key="experience_mode_picker",
+            key="workspace_mode_picker",
         )
         st.caption(
             "Choose Guided for clearer explanations, or Professional for the full technical workspace. "
