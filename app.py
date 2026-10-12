@@ -1437,16 +1437,54 @@ def page_news():
     else:
         st.success("No selected events are currently inside the configured caution window.")
 
+    st.markdown("### News trading analysis")
+    st.caption(
+        "This panel prioritizes upcoming high-impact releases and maps their currencies to commonly watched instruments. "
+        "It does not infer a buy/sell direction from the event name alone."
+    )
+    related_instruments = {
+        "USD": ["EUR/USD", "GBP/USD", "USD/JPY", "XAU/USD"],
+        "EUR": ["EUR/USD"], "GBP": ["GBP/USD"], "JPY": ["USD/JPY"],
+        "AUD": ["AUD/USD"], "CAD": ["USD/CAD"], "CHF": ["USD/CHF"],
+        "NZD": ["NZD/USD"], "CNY": ["AUD/USD", "NZD/USD"], "INR": ["USD/INR"],
+    }
+    next_high = [e for e in upcoming if e["impact"] == "High"][:5]
+    if next_high:
+        for event in next_high:
+            dt = event["_dt"]
+            minutes = max(0, int((dt - now).total_seconds() // 60))
+            time_left = f"{minutes // 60}h {minutes % 60}m"
+            symbols = related_instruments.get(event["currency"], ["Related instruments depend on exposure"])
+            st.markdown(
+                f"**{event['currency']} · {event['event']}** — {dt.strftime('%Y-%m-%d %H:%M UTC')} "
+                f"(in {time_left})"
+            )
+            st.caption(f"Impact: High · Watchlist: {', '.join(symbols)}")
+            if event["actual"] and event["forecast"]:
+                st.caption(
+                    f"Reported values — actual: {event['actual']}; forecast: {event['forecast']}; "
+                    f"previous: {event['previous'] or 'not supplied'}. Check the indicator definition and revisions before interpreting the surprise."
+                )
+    else:
+        st.info("No upcoming high-impact events in the selected currencies and impact filters.")
+
     rows = []
     for event in parsed:
         dt = event["_dt"]
+        if dt and dt >= now:
+            minutes = int((dt - now).total_seconds() // 60)
+            countdown = f"{minutes // 60}h {minutes % 60}m"
+        else:
+            countdown = "—"
         rows.append({
             "Time (UTC)": dt.strftime("%Y-%m-%d %H:%M") if dt else f"{event['date_utc']} · {event['time_source']}",
+            "Countdown": countdown,
             "Currency": event["currency"], "Impact": event["impact"], "Event": event["event"],
             "Actual": event["actual"] or "—", "Forecast": event["forecast"] or "—",
             "Previous": event["previous"] or "—",
         })
     if rows:
+        st.markdown("### Economic calendar")
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
     else:
         st.info("No events match the selected filters in the fetched calendar view.")
