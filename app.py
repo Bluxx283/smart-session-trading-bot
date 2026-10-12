@@ -23,6 +23,7 @@ import time
 from collections import deque
 from datetime import datetime, timedelta, timezone, time as dtime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -318,9 +319,10 @@ def market_is_open(category: str) -> bool:
     if category == "nse":        # Mon-Fri 09:15-15:30 IST
         ist = now + timedelta(hours=5, minutes=30)
         return ist.weekday() < 5 and dtime(9, 15) <= ist.time() <= dtime(15, 30)
-    if category == "us_equity":  # Mon-Fri 09:30-16:00 ET (UTC-5, no DST)
-        et = now - timedelta(hours=5)
-        return et.weekday() < 5 and dtime(9, 30) <= et.time() <= dtime(16, 0)
+    if category == "us_equity":  # Mon-Fri 09:30-16:00 America/New_York; DST-aware
+        et = now.astimezone(ZoneInfo("America/New_York"))
+        et_time = et.time().replace(tzinfo=None)
+        return et.weekday() < 5 and dtime(9, 30) <= et_time <= dtime(16, 0)
     return True
 
 
